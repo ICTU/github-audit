@@ -2,10 +2,13 @@
 
 import configparser
 import json
-from typing import Optional
 from enum import Enum
+from typing import Optional
 
 from github import Github
+from rich.console import Console
+from rich.table import Table
+from rich import box
 import typer
 
 
@@ -46,9 +49,19 @@ def echo_json(json_data) -> None:
     typer.echo(json.dumps(json_data, indent="  "))
 
 
+def format_bool(boolean: bool) -> str:
+    """Format the boolean."""
+    return "☑️" if boolean else ""
+
+
+def format_int(integer: Optional[int]) -> str:
+    """Format the integer."""
+    return "" if integer is None else str(integer)
+
+
 @app.command()
 def repos(
-    organization_name: str, 
+    organization_name: str,
     include_forked_repositories: bool = fork_option,
     include_archived_repositories: bool = archive_option,
     output_format: OutputFormat = output_format_option,
@@ -72,23 +85,44 @@ def repos(
         repositories.sort(key=lambda repo: repo["pushed_at"])
         echo_json(repositories)
     else:
+        table = Table("Name", box=box.SQUARE)
+        empty_columns = [None, None]
+        if include_archived_repositories:
+            table.add_column("Archived", justify="center")
+            empty_columns.append(None)
+        if include_forked_repositories:
+            table.add_column("Fork", justify="center")
+            empty_columns.append(None)
+        table.add_column("Pushed at")
+        table.add_column("Pull request title")
+        table.add_column("Created at")
         for repo in sorted(repositories, key=lambda x: x['name'].lower()):
-            print(f"{repo['name']}\t{repo['archived']}\t{repo['fork']}\t{repo['pushed_at']}")
-            for pr in repo['open_pull_requests']:
-                print(f"\t{pr['title']}\t{pr['created_at']}")
-            print()
+            repo_row = [repo["name"]]
+            if include_archived_repositories:
+                repo_row.append(format_bool(repo["archived"]))
+            if include_forked_repositories:
+                repo_row.append(format_bool(repo["fork"]))
+            repo_row.append(repo["pushed_at"])
+            if repo["open_pull_requests"]:
+                first_pr = repo["open_pull_requests"][0]
+                repo_row.extend([first_pr["title"], first_pr["created_at"]])
+            table.add_row(*repo_row)
+            for pr in repo["open_pull_requests"][1:]:
+                pr_row = empty_columns + [pr["title"], pr["created_at"]]
+                table.add_row(*pr_row)
+        Console().print(table)
 
 
 @app.command()
 def repo_contributions(
-    organization_name: str, 
+    organization_name: str,
     include_forked_repositories: bool = fork_option,
     include_archived_repositories: bool = archive_option,
     output_format: OutputFormat = output_format_option,
 ):
     organization = g.get_organization(organization_name)
     repositories = []
-    
+
     for repo in get_repos(organization, include_forked_repositories, include_archived_repositories):
         repo_contributors = []
         for contributor in repo.get_contributors():
@@ -99,7 +133,7 @@ def repo_contributions(
             )
         repositories.append(
             dict(
-                name=repo.name, full_name=rep.full_name, url=repo.html_url,
+                name=repo.name, full_name=repo.full_name, url=repo.html_url,
                 archived=repo.archived, fork=repo.fork, pushed_at=repo.pushed_at.isoformat(),
                 contributors=repo_contributors,
             )
@@ -108,14 +142,15 @@ def repo_contributions(
         repositories.sort(key=lambda repo: repo["name"] or "")
         echo_json(repositories)
     else:
+        table = Table("Name", "Contributor name", "Contributor login", "Nr. of contributions", box=box.SQUARE)
         for repo in sorted(repositories, key=lambda x: x['name'].lower()):
-            print(f"{repo['name']}\t{repo['url']}")
-            for contributor in sorted(repo['contributors'], key=lambda x: (1_000_000_000 - x['contributions'], x['login'].lower())):
-                items = [ "", str(contributor['contributions']), contributor['login']]
-                if contributor['name']:
-                    items.append(contributor['name'])
-                print("\t".join(items))
-            print()
+            contributors = sorted(repo['contributors'], key=lambda x: (1_000_000_000 - x['contributions'], x['login'].lower()))
+            first_contributor = contributors[0] if contributors else dict()
+            first_row = [repo["name"], first_contributor.get("name"), first_contributor.get("login"), format_int(first_contributor.get("contributions"))]
+            table.add_row(*first_row)
+            for contributor in contributors[1:]:
+                table.add_row(None, contributor.get("name"), contributor["login"], format_int(contributor["contributions"]))
+        Console().print(table)
 
 
 @app.command()
@@ -123,10 +158,7 @@ def members(organization_name: str, output_format: OutputFormat = output_format_
     organization = g.get_organization(organization_name)
     member_info = []
     for member in get_members(organization):
-        try:
-            membership = member.get_organization_membership(organization)
-        except:
-            membership = None
+        membership = member.get_organization_membership(organization)
         member_info.append(
             dict(login=member.login, name=member.name, membership_state=membership.state, membership_role=membership.role,)
         )
@@ -134,10 +166,11 @@ def members(organization_name: str, output_format: OutputFormat = output_format_
         member_info.sort(key=lambda member: member["name"] or "")
         echo_json(member_info)
     else:
+        table = Table("Login", "Name", "Membership state", "Membership role", box=box.SQUARE)
         for member in sorted(member_info, key=lambda x: x['login']):
-            print(f"{member['login']}\t{member['name']}\t{member['membership_state']}\t{member['membership_role']}")
+            table.add_row(member['login'], member['name'], member['membership_state'], member['membership_role'])
+        Console().print(table)
 
 
 if __name__ == "__main__":
    app()
-

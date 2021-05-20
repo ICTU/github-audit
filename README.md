@@ -17,6 +17,12 @@ Create a `.audit.cfg` file with contents:
 [github.com]
 token = <your token>
 ```
+optionally you may specify the organization you work for:
+```ini
+[github.com]
+token = <your token>
+organization = <your organization>
+```
 
 Install the requirements:
 

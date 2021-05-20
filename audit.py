@@ -4,12 +4,14 @@ import configparser
 import json
 from enum import Enum
 from typing import Optional
+from datetime import datetime
 
 from github import Github
 from rich.console import Console
 from rich.table import Table, Column
 from rich import box
 import typer
+import timeago
 
 
 CONFIG_FILE = ".audit.cfg"
@@ -112,19 +114,23 @@ def repos(
         table.add_column("Pushed at")
         table.add_column("Pull request title")
         table.add_column("Created at")
+        now = datetime.now()
         for repo in sorted(repositories, key=lambda x: x['name'].lower()):
             repo_row = [repo["name"]]
             if include_archived_repositories:
                 repo_row.append(format_bool(repo["archived"]))
             if include_forked_repositories:
                 repo_row.append(format_bool(repo["fork"]))
-            repo_row.append(repo["pushed_at"])
+            human_friendly = timeago.format(datetime.fromisoformat(repo["pushed_at"]), now)
+            repo_row.append(f'{repo["pushed_at"]} ({human_friendly})')
             if repo["open_pull_requests"]:
                 first_pr = repo["open_pull_requests"][0]
-                repo_row.extend([first_pr["title"], first_pr["created_at"]])
+                human_friendly = timeago.format(datetime.fromisoformat(first_pr["created_at"]), now)
+                repo_row.extend([first_pr["title"], f'{first_pr["created_at"]} ({human_friendly})'])
             table.add_row(*repo_row)
             for pr in repo["open_pull_requests"][1:]:
-                pr_row = empty_columns + [pr["title"], pr["created_at"]]
+                human_friendly = timeago.format(datetime.fromisoformat(pr["created_at"]), now)
+                pr_row = empty_columns + [pr["title"], f'{pr["created_at"]} ({human_friendly})']
                 table.add_row(*pr_row)
         Console().print(table)
 

@@ -12,18 +12,27 @@ from rich import box
 import typer
 
 
+CONFIG_FILE = ".audit.cfg"
+# supported:
+# [github.com]
+# organization=NAME -- optional
+# token=TOKEN -- required
+
+
 class OutputFormat(str, Enum):
     text = "text"
     json = "json"
 
 
+config = configparser.ConfigParser()
+config.read(CONFIG_FILE)
+
+organization_name_argument = typer.Argument(config["github.com"].get("organization", None))
 output_format_option = typer.Option(OutputFormat.text, "--format")
 fork_option = typer.Option(True, "--include-forked-repositories/--exclude-forked-repositories", "-f/-F")
 archive_option = typer.Option(False, "--include-archived-repositories/--exclude-archived-repositories", "-a/-A")
 
 
-config = configparser.ConfigParser()
-config.read(".audit.cfg")
 g = Github(config["github.com"]["token"])
 app = typer.Typer()
 
@@ -68,7 +77,7 @@ def format_int(integer: Optional[int]) -> str:
 
 @app.command()
 def repos(
-    organization_name: str,
+    organization_name: str = organization_name_argument,
     include_forked_repositories: bool = fork_option,
     include_archived_repositories: bool = archive_option,
     output_format: OutputFormat = output_format_option,
@@ -122,7 +131,7 @@ def repos(
 
 @app.command()
 def repo_contributions(
-    organization_name: str,
+    organization_name: str = organization_name_argument,
     include_forked_repositories: bool = fork_option,
     include_archived_repositories: bool = archive_option,
     output_format: OutputFormat = output_format_option,
@@ -159,7 +168,10 @@ def repo_contributions(
 
 
 @app.command()
-def members(organization_name: str, output_format: OutputFormat = output_format_option):
+def members(
+        organization_name: str = organization_name_argument,
+        output_format: OutputFormat = output_format_option
+):
     organization = g.get_organization(organization_name)
     member_info = [
         dict(login=member.login, name=member.name, membership_state=membership.state, membership_role=membership.role, )

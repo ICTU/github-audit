@@ -7,7 +7,7 @@ from typing import Optional
 
 from github import Github
 from rich.console import Console
-from rich.table import Table
+from rich.table import Table, Column
 from rich import box
 import typer
 
@@ -33,15 +33,22 @@ def get_repos(organization, include_forked_repositories: bool, include_archived_
     with typer.progressbar(organization.get_repos(), length=organization.public_repos) as repos:
         for repo in repos:
             if (repo.archived and not include_archived_repositories) or (repo.fork and not include_forked_repositories):
-               continue
+                continue
             yield repo
 
 
-def get_members(organization):
+def get_contributors(repo):
+    """Return the non-bot contributors to a repository"""
+    for contributor in repo.get_contributors():
+        if contributor.type.lower() != "bot":
+            yield contributor
+
+
+def get_members_and_membership(organization):
     """Return the members of the organization."""
     with typer.progressbar(organization.get_members()) as members:
         for member in members:
-            yield member
+            yield member, member.get_organization_membership(organization)
 
 
 def echo_json(json_data) -> None:
@@ -51,7 +58,7 @@ def echo_json(json_data) -> None:
 
 def format_bool(boolean: bool) -> str:
     """Format the boolean."""
-    return "☑️" if boolean else ""
+    return "\N{BALLOT BOX WITH CHECK}" if boolean else ""
 
 
 def format_int(integer: Optional[int]) -> str:
@@ -86,7 +93,7 @@ def repos(
         echo_json(repositories)
     else:
         table = Table("Name", box=box.SQUARE)
-        empty_columns = [None, None]
+        empty_columns = [None, None]  # Name, Pushed at
         if include_archived_repositories:
             table.add_column("Archived", justify="center")
             empty_columns.append(None)
@@ -121,28 +128,26 @@ def repo_contributions(
     output_format: OutputFormat = output_format_option,
 ):
     organization = g.get_organization(organization_name)
-    repositories = []
-
-    for repo in get_repos(organization, include_forked_repositories, include_archived_repositories):
-        repo_contributors = []
-        for contributor in repo.get_contributors():
-            if contributor.type.lower() == "bot":
-                continue
-            repo_contributors.append(
-                dict(contributions=contributor.contributions, login=contributor.login, name=contributor.name,)
-            )
-        repositories.append(
-            dict(
-                name=repo.name, full_name=repo.full_name, url=repo.html_url,
-                archived=repo.archived, fork=repo.fork, pushed_at=repo.pushed_at.isoformat(),
-                contributors=repo_contributors,
-            )
+    repositories = [
+        dict(
+            name=repo.name, full_name=repo.full_name, url=repo.html_url,
+            archived=repo.archived, fork=repo.fork, pushed_at=repo.pushed_at.isoformat(),
+            contributors=[
+                dict(contributions=contributor.contributions, login=contributor.login, name=contributor.name, )
+                for contributor in get_contributors(repo)
+            ]
         )
+        for repo in get_repos(organization, include_forked_repositories, include_archived_repositories)
+    ]
     if output_format == OutputFormat.json:
         repositories.sort(key=lambda repo: repo["name"] or "")
         echo_json(repositories)
     else:
-        table = Table("Name", "Contributor name", "Contributor login", "Nr. of contributions", box=box.SQUARE)
+        table = Table(
+            "Name", "Contributor name", "Contributor login",
+            Column("Nr. of contributions", justify="right"),
+            box=box.SQUARE
+        )
         for repo in sorted(repositories, key=lambda x: x['name'].lower()):
             contributors = sorted(repo['contributors'], key=lambda x: (1_000_000_000 - x['contributions'], x['login'].lower()))
             first_contributor = contributors[0] if contributors else dict()
@@ -156,12 +161,10 @@ def repo_contributions(
 @app.command()
 def members(organization_name: str, output_format: OutputFormat = output_format_option):
     organization = g.get_organization(organization_name)
-    member_info = []
-    for member in get_members(organization):
-        membership = member.get_organization_membership(organization)
-        member_info.append(
-            dict(login=member.login, name=member.name, membership_state=membership.state, membership_role=membership.role,)
-        )
+    member_info = [
+        dict(login=member.login, name=member.name, membership_state=membership.state, membership_role=membership.role, )
+        for member, membership in get_members_and_membership(organization)
+    ]
     if output_format == OutputFormat.json:
         member_info.sort(key=lambda member: member["name"] or "")
         echo_json(member_info)
@@ -173,4 +176,4 @@ def members(organization_name: str, output_format: OutputFormat = output_format_
 
 
 if __name__ == "__main__":
-   app()
+    app()

@@ -13,6 +13,10 @@ import typer
 
 
 CONFIG_FILE = ".audit.cfg"
+# supported:
+# [github.com]
+# organization=NAME -- optional
+# token=TOKEN -- required
 
 
 class OutputFormat(str, Enum):

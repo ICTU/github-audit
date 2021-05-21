@@ -76,6 +76,8 @@ def format_int(integer: Optional[int]) -> str:
     """Format the integer."""
     return "" if integer is None else str(integer)
 
+def human_friendly_timestamp(timestamp: str, now: datetime):
+    return f'{timestamp} ({timeago.format(datetime.fromisoformat(timestamp), now)}'
 
 @app.command()
 def repos(
@@ -121,16 +123,13 @@ def repos(
                 repo_row.append(format_bool(repo["archived"]))
             if include_forked_repositories:
                 repo_row.append(format_bool(repo["fork"]))
-            human_friendly = timeago.format(datetime.fromisoformat(repo["pushed_at"]), now)
-            repo_row.append(f'{repo["pushed_at"]} ({human_friendly})')
+            repo_row.append(f'{repo["pushed_at"]} {human_friendly_timestamp(repo["pushed_at"], now)}')
             if repo["open_pull_requests"]:
                 first_pr = repo["open_pull_requests"][0]
-                human_friendly = timeago.format(datetime.fromisoformat(first_pr["created_at"]), now)
-                repo_row.extend([first_pr["title"], f'{first_pr["created_at"]} ({human_friendly})'])
+                repo_row.extend([first_pr["title"], f'{human_friendly_timestamp(first_pr["created_at"], now)}'])
             table.add_row(*repo_row)
             for pr in repo["open_pull_requests"][1:]:
-                human_friendly = timeago.format(datetime.fromisoformat(pr["created_at"]), now)
-                pr_row = empty_columns + [pr["title"], f'{pr["created_at"]} ({human_friendly})']
+                pr_row = empty_columns + [pr["title"], f'{human_friendly_timestamp(pr["created_at"], now)}']
                 table.add_row(*pr_row)
         Console().print(table)
 

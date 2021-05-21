@@ -4,12 +4,21 @@ import configparser
 import json
 from enum import Enum
 from typing import Optional
+from datetime import datetime
 
 from github import Github
 from rich.console import Console
 from rich.table import Table, Column
 from rich import box
 import typer
+import timeago
+
+
+CONFIG_FILE = ".audit.cfg"
+# supported:
+# [github.com]
+# organization=NAME -- optional
+# token=TOKEN -- required
 
 
 CONFIG_FILE = ".audit.cfg"
@@ -75,6 +84,10 @@ def format_int(integer: Optional[int]) -> str:
     return "" if integer is None else str(integer)
 
 
+def human_friendly_timestamp(timestamp: str, now: datetime):
+    return f'{timestamp} ({timeago.format(datetime.fromisoformat(timestamp), now)})'
+
+
 @app.command()
 def repos(
     organization_name: str = organization_name_argument,
@@ -112,19 +125,20 @@ def repos(
         table.add_column("Pushed at")
         table.add_column("Pull request title")
         table.add_column("Created at")
+        now = datetime.now()
         for repo in sorted(repositories, key=lambda x: x['name'].lower()):
             repo_row = [repo["name"]]
             if include_archived_repositories:
                 repo_row.append(format_bool(repo["archived"]))
             if include_forked_repositories:
                 repo_row.append(format_bool(repo["fork"]))
-            repo_row.append(repo["pushed_at"])
+            repo_row.append(f'{human_friendly_timestamp(repo["pushed_at"], now)}')
             if repo["open_pull_requests"]:
                 first_pr = repo["open_pull_requests"][0]
-                repo_row.extend([first_pr["title"], first_pr["created_at"]])
+                repo_row.extend([first_pr["title"], f'{human_friendly_timestamp(first_pr["created_at"], now)}'])
             table.add_row(*repo_row)
             for pr in repo["open_pull_requests"][1:]:
-                pr_row = empty_columns + [pr["title"], pr["created_at"]]
+                pr_row = empty_columns + [pr["title"], f'{human_friendly_timestamp(pr["created_at"], now)}']
                 table.add_row(*pr_row)
         Console().print(table)
 

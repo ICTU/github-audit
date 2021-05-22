@@ -75,17 +75,23 @@ def echo_json(json_data) -> None:
 
 
 def format_bool(boolean: bool) -> str:
-    """Format the boolean."""
+    """Convert the boolean to a string."""
     return "\N{BALLOT BOX WITH CHECK}" if boolean else ""
 
 
 def format_int(integer: Optional[int]) -> str:
-    """Format the integer."""
+    """Convert the integer to a string."""
     return "" if integer is None else str(integer)
 
 
-def human_friendly_timestamp(timestamp: str, now: datetime):
+def format_timestamp(timestamp: str, now: datetime) -> str:
     return f'{timestamp} ({timeago.format(datetime.fromisoformat(timestamp), now)})'
+
+
+def format_member(member) -> str:
+    """Return the member name and/or login."""
+    name, login = member.get("name", ""), member.get("login", "")
+    return f"{name} ({login})" if name and login else name or login
 
 
 @app.command()
@@ -132,13 +138,13 @@ def repos(
                 repo_row.append(format_bool(repo["archived"]))
             if include_forked_repositories:
                 repo_row.append(format_bool(repo["fork"]))
-            repo_row.append(f'{human_friendly_timestamp(repo["pushed_at"], now)}')
+            repo_row.append(f'{format_timestamp(repo["pushed_at"], now)}')
             if repo["open_pull_requests"]:
                 first_pr = repo["open_pull_requests"][0]
-                repo_row.extend([first_pr["title"], f'{human_friendly_timestamp(first_pr["created_at"], now)}'])
+                repo_row.extend([first_pr["title"], f'{format_timestamp(first_pr["created_at"], now)}'])
             table.add_row(*repo_row)
             for pr in repo["open_pull_requests"][1:]:
-                pr_row = empty_columns + [pr["title"], f'{human_friendly_timestamp(pr["created_at"], now)}']
+                pr_row = empty_columns + [pr["title"], f'{format_timestamp(pr["created_at"], now)}']
                 table.add_row(*pr_row)
         Console().print(table)
 
@@ -167,17 +173,15 @@ def repo_contributions(
         echo_json(repositories)
     else:
         table = Table(
-            "Name", "Contributor name", "Contributor login",
-            Column("Nr. of contributions", justify="right"),
-            box=box.SQUARE
+            "Name", "Contributor", Column("Nr. of contributions", justify="right"), box=box.SQUARE
         )
         for repo in sorted(repositories, key=lambda x: x['name'].lower()):
             contributors = sorted(repo['contributors'], key=lambda x: (1_000_000_000 - x['contributions'], x['login'].lower()))
             first_contributor = contributors[0] if contributors else dict()
-            first_row = [repo["name"], first_contributor.get("name"), first_contributor.get("login"), format_int(first_contributor.get("contributions"))]
+            first_row = [repo["name"], format_member(first_contributor), format_int(first_contributor.get("contributions"))]
             table.add_row(*first_row)
             for contributor in contributors[1:]:
-                table.add_row(None, contributor.get("name"), contributor["login"], format_int(contributor["contributions"]))
+                table.add_row(None, format_member(contributor), format_int(contributor["contributions"]))
         Console().print(table)
 
 
@@ -195,9 +199,9 @@ def members(
         member_info.sort(key=lambda member: member["name"] or "")
         echo_json(member_info)
     else:
-        table = Table("Login", "Name", "Membership state", "Membership role", box=box.SQUARE)
+        table = Table("Member", "Membership state", "Membership role", box=box.SQUARE)
         for member in sorted(member_info, key=lambda x: x['login']):
-            table.add_row(member['login'], member['name'], member['membership_state'], member['membership_role'])
+            table.add_row(format_member(member), member['membership_state'], member['membership_role'])
         Console().print(table)
 
 

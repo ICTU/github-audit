@@ -21,16 +21,10 @@ CONFIG_FILE = ".audit.cfg"
 # token=TOKEN -- required
 
 
-CONFIG_FILE = ".audit.cfg"
-# supported:
-# [github.com]
-# organization=NAME -- optional
-# token=TOKEN -- required
-
-
 class OutputFormat(str, Enum):
     text = "text"
     json = "json"
+    html = "html"
 
 
 config = configparser.ConfigParser()

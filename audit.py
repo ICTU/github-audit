@@ -3,10 +3,10 @@
 import configparser
 import json
 from enum import Enum
-from typing import Optional
+from typing import Optional, Tuple
 from datetime import datetime
 
-from github import Github
+from github import Github, Organization, Repository, NamedUser, Membership
 from rich.console import Console
 from rich.table import Table, Column
 from rich import box
@@ -28,7 +28,7 @@ class OutputFormat(str, Enum):
     html = "html"
 
     @staticmethod
-    def unknown(what):
+    def unknown(what: str) -> None:
         print(f"PANIC! unknown output format {what}")
 
 
@@ -39,13 +39,20 @@ organization_name_argument = typer.Argument(config["github.com"].get("organizati
 output_format_option = typer.Option(OutputFormat.text, "--format")
 fork_option = typer.Option(True, "--include-forked-repositories/--exclude-forked-repositories", "-f/-F")
 archive_option = typer.Option(False, "--include-archived-repositories/--exclude-archived-repositories", "-a/-A")
+output_option = typer.Option(None, "--output", "-o")
 
 
 g = Github(config["github.com"]["token"])
 app = typer.Typer()
 
 
-def get_repos(organization, include_forked_repositories: bool, include_archived_repositories: bool):
+# Github API wrappers
+
+def get_repos(
+        organization: Organization,
+        include_forked_repositories: bool,
+        include_archived_repositories: bool
+) -> Repository:
     """Return the repositories of the organization, displaying a scrollbar."""
     with typer.progressbar(organization.get_repos(), length=organization.public_repos, label="Collecting") as repos:
         for repo in repos:
@@ -56,27 +63,24 @@ def get_repos(organization, include_forked_repositories: bool, include_archived_
             yield repo
 
 
-def get_contributors(repo):
+def get_contributors(repo: Repository) -> NamedUser:
     """Return the non-bot contributors to a repository"""
     for contributor in repo.get_contributors():
         if contributor.type.lower() != "bot":
             yield contributor
 
 
-def get_members_and_membership(organization):
-    """Return the members of the organization."""
+def get_members_and_membership(organization) -> Tuple[NamedUser, Membership]:
+    """Return the members of the organization and their membership."""
     with typer.progressbar(organization.get_members(), label="Collecting") as members:
         for member in members:
             yield member, member.get_organization_membership(organization)
 
 
-def echo_json(json_data) -> None:
-    """Output the json data to stdout."""
-    typer.echo(json.dumps(json_data, indent="  "))
-
+# formatting utilities
 
 def format_bool(boolean: bool) -> str:
-    """Convert the boolean to a string."""
+    """Convert a boolean to a string."""
     return "\N{BALLOT BOX WITH CHECK}" if boolean else ""
 
 
@@ -85,68 +89,114 @@ def format_int(integer: Optional[int]) -> str:
     return "" if integer is None else str(integer)
 
 
-def format_timestamp(timestamp: str, now: datetime) -> str:
+def format_friendly_timestamp(timestamp: str, now: datetime) -> str:
+    """Add a user friendly relative time to a timestamp."""
     return f'{timestamp} ({timeago.format(datetime.fromisoformat(timestamp), now)})'
 
 
-def format_member(member) -> str:
+def format_generated_timestamp(dt: datetime) -> str:
+    """Return standard phrase for the date and time the report is generated"""
+    dt_as_text = dt.astimezone().strftime('%Y/%m/%d %H:%M:%S %Z')
+    return f"generated on {dt_as_text}"
+
+
+def format_member(member: NamedUser) -> str:
     """Return the member name and/or login."""
     name = member.get("name") or ""
     login = member.get("login") or ""
     return f"{name} ({login})" if name and login else name or login
 
 
-def format_email_href(email):
+# HTML utilities
+
+def create_html_head(doc: Doc, title: str) -> None:
+    """
+    Standard HTML head segment
+    - sets text encoding for compatibility with Python
+    - sets document title
+    - defines styles for content
+    :param doc: yattag document
+    :param title: document title
+    """
+    with doc.tag("head"):
+        doc.asis('<meta charset="UTF-8">')
+        with doc.tag("title"):
+            doc.text(title)
+        with doc.tag("style"):
+            doc.text("\nbody {font-size: 100%; }")
+            doc.text("\ndiv.footer {font-size: 50%; padding-top: 24px; }")
+            doc.text("\ntable {border-spacing: 0; border-collapse: collapse; }")
+            doc.text("\nth {vertical-align: bottom; }")
+            doc.text("\ntd {vertical-align: top; }")
+            doc.text("\n.centered {text-align: center; }")
+            doc.text("\n.column-group-header {border-bottom: 1px solid black; }")
+            doc.text("\n.first-row {border-top: 1px solid black; }")
+            doc.text("\n.right {text-align: right; }")
+
+
+def create_html_email_href(email: str) -> str:
+    """
+    HTML version of an email address
+    :param email: the email address
+    :return: email address for use in an HTML document
+    """
     return f'<a href="mailto:{email}">{email}</a>' if email else ""
 
 
-def format_url_href(url):
+def create_html_url_href(url: str) -> str:
+    """
+    HTML version of a URL
+    :param url: the URL
+    :return: URL for use in an HTML document
+    """
     return f'<a href="{url}">{url}</a>' if url else ""
 
 
-def format_footer_text(now):
-    now_as_text = now.astimezone().strftime('%Y/%m/%d %H:%M:%S %Z')
-    return f"generated on {now_as_text}"
+def create_html_footer(doc: Doc, started: datetime) -> None:
+    """
+    Standard HTML footer for the body segment
+    :param doc: yattag document
+    :param started: when report creation started
+    """
+    with doc.tag("div", klass="footer"):
+        doc.text(format_generated_timestamp(started))
 
 
-def create_html_head(doc, tag, text, title):
-    with tag("head"):
-        doc.asis('<meta charset="UTF-8">')
-        with tag("title"):
-            text(title)
-        with tag("style"):
-            text("\nbody {font-size: 100%; }")
-            text("\ndiv.footer {font-size: 50%; padding-top: 24px; }")
-            text("\ntable {border-spacing: 0; border-collapse: collapse; }")
-            text("\nth {vertical-align: bottom; }")
-            text("\ntd {vertical-align: top; }")
-            text("\n.centered {text-align: center; }")
-            text("\n.column-group-header {border-bottom: 1px solid black; }")
-            text("\n.first-row {border-top: 1px solid black; }")
-            text("\n.right {text-align: right; }")
+# output creation
+
+def output_json(json_data: list, output: Optional[typer.FileTextWrite]) -> None:
+    """
+    Output the json data
+    :param json_data: data to convert to JSON
+    :param output: output file to write to (default: stdout)
+    """
+    typer.echo(json.dumps(json_data, indent="  "), file=output)
 
 
-def create_html_footer(_doc, tag, text, now):
-    with tag("div", klass="footer"):
-        text(format_footer_text(now))
-
-
-def create_text_output(title, table, now):
-    console = Console()
+def output_text_elements(title: str, table: Table, started: datetime, output: Optional[typer.FileTextWrite]) -> None:
+    """
+    Output the text elements
+    :param title: title above the table
+    :param table: data to report
+    :param started: when creating this report started
+    :param output: output file to write to (default: stdout)
+    """
+    console = Console(file=output)
     console.print(title)
     console.print()
     console.print(table)
     console.print()
-    console.print(format_footer_text(now))
+    console.print(format_generated_timestamp(started))
 
 
 @app.command()
 def repos(
-    organization_name: str = organization_name_argument,
-    include_forked_repositories: bool = fork_option,
-    include_archived_repositories: bool = archive_option,
-    output_format: OutputFormat = output_format_option,
-):
+        organization_name: str = organization_name_argument,
+        include_forked_repositories: bool = fork_option,
+        include_archived_repositories: bool = archive_option,
+        output_format: OutputFormat = output_format_option,
+        output: typer.FileTextWrite = output_option,
+) -> None:
     started = datetime.now()
     title = f"Github repositories of {organization_name}"
 
@@ -170,13 +220,13 @@ def repos(
     ]
 
     if output_format == OutputFormat.json:
-        echo_json(repositories)
+        output_json(repositories, output)
 
     elif output_format == OutputFormat.html:
         doc, tag, text = Doc().tagtext()
         with tag("html"):
             with tag("head"):
-                create_html_head(doc, tag, text, title)
+                create_html_head(doc, title)
             with tag("body"):
                 with tag("h1"):
                     text(title)
@@ -211,13 +261,13 @@ def repos(
                                 with tag("td", klass="first-row centered", rowspan=len(open_pull_requests)):
                                     doc.asis(format_bool(repo["fork"]))
                             with tag("td", klass="first-row", rowspan=len(open_pull_requests)):
-                                text(format_timestamp(repo["pushed_at"], started))
+                                text(format_friendly_timestamp(repo["pushed_at"], started))
                             if open_pull_requests:
                                 first_pr = open_pull_requests[0]
                                 with tag("td", klass="first-row"):
                                     text(first_pr["title"])
                                 with tag("td", klass="first-row"):
-                                    text(format_timestamp(first_pr["created_at"], started))
+                                    text(format_friendly_timestamp(first_pr["created_at"], started))
                             else:
                                 doc.stag("td", klass="first-row", colspan=2)
                         for pr in open_pull_requests[1:]:
@@ -225,9 +275,9 @@ def repos(
                                 with tag("td"):
                                     text(pr["title"])
                                 with tag("td"):
-                                    text(format_timestamp(pr["created_at"], started))
-                create_html_footer(doc, tag, text, started)
-        print(indent(doc.getvalue()))
+                                    text(format_friendly_timestamp(pr["created_at"], started))
+                create_html_footer(doc, started)
+        print(indent(doc.getvalue()), file=output)
 
     elif output_format == OutputFormat.text:
         table = Table("Name", box=box.SQUARE)
@@ -247,15 +297,15 @@ def repos(
                 repo_row.append(format_bool(repo["archived"]))
             if include_forked_repositories:
                 repo_row.append(format_bool(repo["fork"]))
-            repo_row.append(f'{format_timestamp(repo["pushed_at"], started)}')
+            repo_row.append(f'{format_friendly_timestamp(repo["pushed_at"], started)}')
             if repo["open_pull_requests"]:
                 first_pr = repo["open_pull_requests"][0]
-                repo_row.extend([first_pr["title"], f'{format_timestamp(first_pr["created_at"], started)}'])
+                repo_row.extend([first_pr["title"], f'{format_friendly_timestamp(first_pr["created_at"], started)}'])
             table.add_row(*repo_row)
             for pr in repo["open_pull_requests"][1:]:
-                pr_row = empty_columns + [pr["title"], f'{format_timestamp(pr["created_at"], started)}']
+                pr_row = empty_columns + [pr["title"], f'{format_friendly_timestamp(pr["created_at"], started)}']
                 table.add_row(*pr_row)
-        create_text_output(title, table, started)
+        output_text_elements(title, table, started, output)
 
     else:
         OutputFormat.unknown(output_format)
@@ -263,11 +313,12 @@ def repos(
 
 @app.command()
 def repo_contributions(
-    organization_name: str = organization_name_argument,
-    include_forked_repositories: bool = fork_option,
-    include_archived_repositories: bool = archive_option,
-    output_format: OutputFormat = output_format_option,
-):
+        organization_name: str = organization_name_argument,
+        include_forked_repositories: bool = fork_option,
+        include_archived_repositories: bool = archive_option,
+        output_format: OutputFormat = output_format_option,
+        output: typer.FileTextWrite = output_option,
+) -> None:
     started = datetime.now()
     title = f"Contributions to github repositories of {organization_name}"
 
@@ -295,12 +346,12 @@ def repo_contributions(
     ]
 
     if output_format == OutputFormat.json:
-        echo_json(repositories)
+        output_json(repositories, output)
 
     elif output_format == OutputFormat.html:
         doc, tag, text = Doc().tagtext()
         with tag('html'):
-            create_html_head(doc, tag, text, title)
+            create_html_head(doc, title)
             with tag("body"):
                 with tag("h1"):
                     text(title)
@@ -333,9 +384,9 @@ def repo_contributions(
                         with tag("td", **td_optional_klass_arg):
                             text(login)
                         with tag("td", **td_optional_klass_arg):
-                            doc.asis(format_email_href(email))
+                            doc.asis(create_html_email_href(email))
                         with tag("td", **td_optional_klass_arg):
-                            doc.asis(format_url_href(url))
+                            doc.asis(create_html_url_href(url))
                         with tag("td", klass=f"{klass} right" if klass else "right"):
                             text(format_int(contributor.get("contributions")))
 
@@ -350,8 +401,8 @@ def repo_contributions(
                         for contributor in contributors[1:]:
                             with tag("tr"):
                                 contributor_row_cells(contributor, None)
-                create_html_footer(doc, tag, text, started)
-        print(indent(doc.getvalue()))
+                create_html_footer(doc, started)
+        print(indent(doc.getvalue()), file=output)
 
     elif output_format == OutputFormat.text:
         table = Table(
@@ -364,7 +415,7 @@ def repo_contributions(
             table.add_row(*first_row)
             for contributor in contributors[1:]:
                 table.add_row(None, format_member(contributor), format_int(contributor["contributions"]))
-        create_text_output(title, table, started)
+        output_text_elements(title, table, started, output)
 
     else:
         OutputFormat.unknown(output_format)
@@ -373,8 +424,9 @@ def repo_contributions(
 @app.command()
 def members(
         organization_name: str = organization_name_argument,
-        output_format: OutputFormat = output_format_option
-):
+        output_format: OutputFormat = output_format_option,
+        output: typer.FileTextWrite = output_option,
+) -> None:
     started = datetime.now()
     title = f"Members of {organization_name} on github"
 
@@ -392,12 +444,12 @@ def members(
     ]
 
     if output_format == OutputFormat.json:
-        echo_json(member_info)
+        output_json(member_info, output)
 
     elif output_format == OutputFormat.html:
         doc, tag, text = Doc().tagtext()
         with tag('html'):
-            create_html_head(doc, tag, text, title)
+            create_html_head(doc, title)
             with tag("body"):
                 with tag("h1"):
                     text(title)
@@ -433,22 +485,22 @@ def members(
                             with tag("td"):
                                 text(login)
                             with tag("td"):
-                                doc.asis(format_email_href(email))
+                                doc.asis(create_html_email_href(email))
                             with tag("td"):
-                                doc.asis(format_url_href(url))
+                                doc.asis(create_html_url_href(url))
                             doc.stag("td")
                             with tag("td"):
                                 text(member['membership_state'])
                             with tag("td"):
                                 text(member['membership_role'])
-                create_html_footer(doc, tag, text, started)
-        print(indent(doc.getvalue()))
+                create_html_footer(doc, started)
+        print(indent(doc.getvalue()), file=output)
 
     elif output_format == OutputFormat.text:
         table = Table("Member", "Membership state", "Membership role", box=box.SQUARE)
         for member in member_info:
             table.add_row(format_member(member), member['membership_state'], member['membership_role'])
-        create_text_output(title, table, started)
+        output_text_elements(title, table, started, output)
 
     else:
         OutputFormat.unknown(output_format)

@@ -12,7 +12,7 @@ from rich.table import Table, Column
 from rich import box
 import typer
 import timeago
-from yattag import Doc, indent
+from yattag import SimpleDoc, Doc, indent
 
 
 CONFIG_FILE = ".audit.cfg"
@@ -109,7 +109,7 @@ def format_member(member: NamedUser) -> str:
 
 # HTML utilities
 
-def create_html_head(doc: Doc, title: str) -> None:
+def create_html_head(doc: SimpleDoc, title: str) -> None:
     """
     Standard HTML head segment
     - sets text encoding for compatibility with Python
@@ -152,7 +152,7 @@ def create_html_url_href(url: str) -> str:
     return f'<a href="{url}">{url}</a>' if url else ""
 
 
-def create_html_footer(doc: Doc, started: datetime) -> None:
+def create_html_footer(doc: SimpleDoc, started: datetime) -> None:
     """
     Standard HTML footer for the body segment
     :param doc: yattag document

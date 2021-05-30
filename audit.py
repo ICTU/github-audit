@@ -6,7 +6,8 @@ from enum import Enum
 from typing import Optional, Tuple
 from datetime import datetime
 
-from github import Github, Organization, Repository, NamedUser, Membership
+from github import Github, Organization, Repository, Membership
+from github.NamedUser import NamedUser
 from rich.console import Console
 from rich.table import Table, Column
 from rich import box

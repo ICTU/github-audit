@@ -97,7 +97,7 @@ def format_friendly_timestamp(timestamp: str, now: datetime) -> str:
 
 def format_generated_timestamp(dt: datetime) -> str:
     """Return standard phrase for the date and time the report is generated"""
-    dt_as_text = dt.astimezone().strftime('%Y/%m/%d %H:%M:%S %Z')
+    dt_as_text = dt.astimezone().strftime('%c %Z')
     return f"generated on {dt_as_text}"
 
 

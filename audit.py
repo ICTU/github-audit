@@ -3,11 +3,15 @@
 import configparser
 import json
 from enum import Enum
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Generator
 from datetime import datetime
 
-from github import Github, Organization, Repository, Membership
+from github import Github
+from github.Membership import Membership
 from github.NamedUser import NamedUser
+from github.Organization import Organization
+from github.Repository import Repository
+
 from rich.console import Console
 from rich.table import Table, Column
 from rich import box
@@ -53,7 +57,7 @@ def get_repos(
         organization: Organization,
         include_forked_repositories: bool,
         include_archived_repositories: bool
-) -> Repository:
+) -> Generator[Repository, None, None]:
     """Return the repositories of the organization, displaying a scrollbar."""
     with typer.progressbar(organization.get_repos(), length=organization.public_repos, label="Collecting") as repos:
         for repo in repos:
@@ -64,14 +68,14 @@ def get_repos(
             yield repo
 
 
-def get_contributors(repo: Repository) -> NamedUser:
+def get_contributors(repo: Repository) -> Generator[NamedUser, None, None]:
     """Return the non-bot contributors to a repository"""
     for contributor in repo.get_contributors():
         if contributor.type.lower() != "bot":
             yield contributor
 
 
-def get_members_and_membership(organization) -> Tuple[NamedUser, Membership]:
+def get_members_and_membership(organization) -> Generator[Tuple[NamedUser, Membership], None, None]:
     """Return the members of the organization and their membership."""
     with typer.progressbar(organization.get_members(), label="Collecting") as members:
         for member in members:
@@ -101,7 +105,7 @@ def format_generated_timestamp(dt: datetime) -> str:
     return f"generated on {dt_as_text}"
 
 
-def format_member(member: NamedUser) -> str:
+def format_member(member: dict) -> str:
     """Return the member name and/or login."""
     name = member.get("name") or ""
     login = member.get("login") or ""

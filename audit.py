@@ -47,8 +47,112 @@ archive_option = typer.Option(False, "--include-archived-repositories/--exclude-
 output_option = typer.Option(None, "--output", "-o")
 
 
-g = Github(config["github.com"]["token"])
-app = typer.Typer()
+class DocumentBase:
+
+    def __init__(self, started, output):
+        self.started = started
+        self.output = output
+
+    def begin_document(self, title: str):
+        raise NotImplementedError(f"{self.__class__.__name__}.begin_document()")
+
+    def empty_line(self):
+        raise NotImplementedError(f"{self.__class__.__name__}.empty_line()")
+
+    def begin_table(self):
+        raise NotImplementedError(f"{self.__class__.__name__}.begin_table()")
+
+    def table_row(self, *args, **kwargs):
+        raise NotImplementedError(f"{self.__class__.__name__}.table_row()")
+
+    def end_table(self):
+        raise NotImplementedError(f"{self.__class__.__name__}.end_table()")
+
+    def end_document(self):
+        raise NotImplementedError(f"{self.__class__.__name__}.end_document()")
+
+
+class TextDocument(DocumentBase):
+
+    table = None
+
+    def __init__(self, started, output):
+        super().__init__(started, output)
+        self.console = Console(file=output)
+
+    def begin_document(self, title: str):
+        self.console.print(title)
+
+    def empty_line(self):
+        self.console.print()
+
+    def begin_table(self):
+        if self.table is not None:
+            raise RuntimeError("already building a table")
+        self.table = Table("Name", box=box.SQUARE)
+        self._table_header()
+
+    def _table_header(self):
+        raise NotImplementedError(f"{self.__class__.__name__}._table_header()")
+
+    def table_row(self, *args, **kwargs):
+        self._table_row(*args, **kwargs)
+
+    def _table_row(self, *args, **kwargs):
+        raise NotImplementedError(f"{self.__class__.__name__}.table_row()")
+
+    def end_table(self):
+        if self.table is None:
+            raise RuntimeError("not building a table")
+        self.console.print()
+        self.console.print(self.table)
+        self.console.print()
+
+    def end_document(self):
+        self.console.print(format_generated_timestamp(self.started))
+
+
+class HtmlDocument(DocumentBase):
+
+    def __init__(self, started, output):
+        super().__init__(started, output)
+        doc, tag, text = Doc().tagtext()
+        self.doc = doc
+        self.tag = tag
+        self.text = text
+
+    def begin_document(self, title: str):
+        self.doc.asis("<html>\n")
+        create_html_head(self.doc, title)
+        self.doc.asis("<body>\n")
+        with self.tag("h1"):
+            self.text(title)
+
+    def empty_line(self):
+        self.doc.stag("br")
+
+    def begin_table(self):
+        self.doc.asis("<table>\n")
+        self._table_header()
+
+    def _table_header(self):
+        raise NotImplementedError(f"{self.__class__.__name__}._table_header()")
+
+    def table_row(self, *args, **kwargs):
+        with self.tag("tr"):
+            self._table_row(*args, **kwargs)
+
+    def _table_row(self, *args, **kwargs):
+        raise NotImplementedError(f"{self.__class__.__name__}.__table_row()")
+
+    def end_table(self):
+        self.doc.asis("</table>\n")
+
+    def end_document(self):
+        create_html_footer(self.doc, self.started)
+        self.doc.asis("</body>\n")
+        self.doc.asis("</html>\n")
+        print(indent(self.doc.getvalue()), file=self.output)
 
 
 # Github API wrappers
@@ -194,6 +298,107 @@ def output_text_elements(title: str, table: Table, started: datetime, output: Op
     console.print(format_generated_timestamp(started))
 
 
+###
+# APPLICATION COMMANDS
+
+g = Github(config["github.com"]["token"])
+app = typer.Typer()
+
+
+class RepoTextDocument(TextDocument):
+
+    empty_columns = None
+
+    def __init__(self, started, output, include_archived_repositories, include_forked_repositories):
+        super().__init__(started, output)
+        self.include_archived_repositories = include_archived_repositories
+        self.include_forked_repositories = include_forked_repositories
+
+    def _table_header(self):
+        if self.table is None:
+            raise RuntimeError("not building a table")
+        if self.include_archived_repositories:
+            self.table.add_column("Archived", justify="center")
+        if self.include_forked_repositories:
+            self.table.add_column("Fork", justify="center")
+        self.table.add_column("Pushed at")
+        self.table.add_column("Pull request title")
+        self.table.add_column("Created at")
+
+    def _table_row(
+            self,
+            repo_name=None, archived=None, fork=None, pushed_at=None, title=None, created_at=None,
+            rowspan=0, first=False
+    ):
+        if self.table is None:
+            raise RuntimeError("not building a table")
+        repo_row = []
+        repo_row.append(repo_name)
+        if self.include_archived_repositories:
+            repo_row.append(format_bool(archived) if archived is not None else None)
+        if self.include_forked_repositories:
+            repo_row.append(format_bool(fork) if fork is not None else None)
+        repo_row.append(f"{format_friendly_timestamp(pushed_at, self.started)}" if pushed_at is not None else None)
+        if title and created_at:
+            repo_row.extend([title, f"{format_friendly_timestamp(created_at, self.started)}"])
+        self.table.add_row(*repo_row)
+
+
+class RepoHtmlDocument(HtmlDocument):
+
+    def __init__(self, started, output, include_archived_repositories, include_forked_repositories):
+        super().__init__(started, output)
+        self.include_archived_repositories = include_archived_repositories
+        self.include_forked_repositories = include_forked_repositories
+
+    def _table_header(self):
+        with self.tag("tr"):
+            with self.tag("th", rowspan=2):
+                self.text("Name")
+            if self.include_archived_repositories:
+                with self.tag("th", rowspan=2):
+                    self.text("Archived")
+            if self.include_forked_repositories:
+                with self.tag("th", rowspan=2):
+                    self.text("Fork")
+            with self.tag("th", rowspan=2):
+                self.text("Pushed at")
+            with self.tag("th", colspan=2, klass="column-group-header"):
+                self.text("Pull request")
+        with self.tag("tr"):
+            with self.tag("th"):
+                self.text("Title")
+            with self.tag("th"):
+                self.text("Created at")
+
+    def _table_row(
+            self,
+            repo_name=None, archived=None, fork=None, pushed_at=None, title=None, created_at=None,
+            rowspan=0, first=False
+    ):
+        klass_first_row = {"klass": "first-row"} if first else {}
+        klass_first_row_centered = {"klass": "first-row centered"} if first else {}
+        if repo_name is not None:
+            with self.tag("td", **klass_first_row, rowspan=rowspan):
+                self.text(repo_name)
+        if archived is not None and self.include_archived_repositories:
+            with self.tag("td", **klass_first_row_centered, rowspan=rowspan):
+                self.doc.asis(format_bool(archived))
+        if fork is not None and self.include_forked_repositories:
+            with self.tag("td", **klass_first_row_centered, rowspan=rowspan):
+                self.doc.asis(format_bool(fork))
+        if pushed_at is not None:
+            with self.tag("td", **klass_first_row, rowspan=rowspan):
+                self.text(format_friendly_timestamp(pushed_at, self.started))
+        if title and created_at:
+            with self.tag("td", **klass_first_row):
+                self.text(title)
+            with self.tag("td", **klass_first_row):
+                self.text(format_friendly_timestamp(created_at, self.started))
+        else:
+            self.doc.stag("td", **klass_first_row, colspan=2)
+
+
 @app.command()
 def repos(
         organization_name: str = organization_name_argument,
@@ -226,94 +431,33 @@ def repos(
 
     if output_format == OutputFormat.json:
         output_json(repositories, output)
+        return
 
-    elif output_format == OutputFormat.html:
-        doc, tag, text = Doc().tagtext()
-        with tag("html"):
-            with tag("head"):
-                create_html_head(doc, title)
-            with tag("body"):
-                with tag("h1"):
-                    text(title)
-                with tag("table"):
-                    with tag("tr"):
-                        with tag("th", rowspan=2):
-                            text("Name")
-                        if include_archived_repositories:
-                            with tag("th", rowspan=2):
-                                text("Archived")
-                        if include_forked_repositories:
-                            with tag("th", rowspan=2):
-                                text("Fork")
-                        with tag("th", rowspan=2):
-                            text("Pushed at")
-                        with tag("th", colspan=2, klass="column-group-header"):
-                            text("Pull request")
-                    with tag("tr"):
-                        with tag("th"):
-                            text("Title")
-                        with tag("th"):
-                            text("Created at")
-                    for repo in sorted(repositories, key=lambda x: x['name'].lower()):
-                        open_pull_requests = repo["open_pull_requests"]
-                        with tag("tr"):
-                            with tag("td", klass="first-row", rowspan=len(open_pull_requests)):
-                                text(repo["name"])
-                            if include_archived_repositories:
-                                with tag("td", klass="first-row centered", rowspan=len(open_pull_requests)):
-                                    doc.asis(format_bool(repo["archived"]))
-                            if include_forked_repositories:
-                                with tag("td", klass="first-row centered", rowspan=len(open_pull_requests)):
-                                    doc.asis(format_bool(repo["fork"]))
-                            with tag("td", klass="first-row", rowspan=len(open_pull_requests)):
-                                text(format_friendly_timestamp(repo["pushed_at"], started))
-                            if open_pull_requests:
-                                first_pr = open_pull_requests[0]
-                                with tag("td", klass="first-row"):
-                                    text(first_pr["title"])
-                                with tag("td", klass="first-row"):
-                                    text(format_friendly_timestamp(first_pr["created_at"], started))
-                            else:
-                                doc.stag("td", klass="first-row", colspan=2)
-                        for pr in open_pull_requests[1:]:
-                            with tag("tr"):
-                                with tag("td"):
-                                    text(pr["title"])
-                                with tag("td"):
-                                    text(format_friendly_timestamp(pr["created_at"], started))
-                create_html_footer(doc, started)
-        print(indent(doc.getvalue()), file=output)
-
-    elif output_format == OutputFormat.text:
-        table = Table("Name", box=box.SQUARE)
-        empty_columns = [None, None]  # Name, Pushed at
-        if include_archived_repositories:
-            table.add_column("Archived", justify="center")
-            empty_columns.append(None)
-        if include_forked_repositories:
-            table.add_column("Fork", justify="center")
-            empty_columns.append(None)
-        table.add_column("Pushed at")
-        table.add_column("Pull request title")
-        table.add_column("Created at")
-        for repo in sorted(repositories, key=lambda x: x['name'].lower()):
-            repo_row = [repo["name"]]
-            if include_archived_repositories:
-                repo_row.append(format_bool(repo["archived"]))
-            if include_forked_repositories:
-                repo_row.append(format_bool(repo["fork"]))
-            repo_row.append(f'{format_friendly_timestamp(repo["pushed_at"], started)}')
-            if repo["open_pull_requests"]:
-                first_pr = repo["open_pull_requests"][0]
-                repo_row.extend([first_pr["title"], f'{format_friendly_timestamp(first_pr["created_at"], started)}'])
-            table.add_row(*repo_row)
-            for pr in repo["open_pull_requests"][1:]:
-                pr_row = empty_columns + [pr["title"], f'{format_friendly_timestamp(pr["created_at"], started)}']
-                table.add_row(*pr_row)
-        output_text_elements(title, table, started, output)
-
-    else:
+    klass = {
+        OutputFormat.html: RepoHtmlDocument,
+        OutputFormat.text: RepoTextDocument,
+    }.get(output_format)
+    if klass is None:
         OutputFormat.unknown(output_format)
+
+    document = klass(started, output, include_archived_repositories, include_forked_repositories)
+    document.begin_document(title)
+    document.begin_table()
+    for repo in sorted(repositories, key=lambda x: x['name'].lower()):
+        open_pull_requests = repo["open_pull_requests"]
+        columns = [
+            repo["name"],
+            repo["archived"],
+            repo["fork"],
+            repo["pushed_at"],
+            open_pull_requests[0]["title"] if open_pull_requests else "",
+            open_pull_requests[0]["created_at"] if open_pull_requests else "",
+        ]
+        document.table_row(*columns, rowspan=len(open_pull_requests), first=True)
+        for pr in open_pull_requests[1:]:
+            document.table_row(title=pr["title"], created_at=pr["created_at"])
+    document.end_table()
+    document.end_document()
 
 
 @app.command()

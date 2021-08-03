@@ -1,5 +1,5 @@
 """Audit GitHub organizations."""
-
+import abc
 import configparser
 import json
 from enum import Enum
@@ -18,6 +18,13 @@ from rich import box
 import typer
 import timeago
 from yattag import SimpleDoc, Doc, indent
+
+
+LARGE_NUMBER = 1_000_000_000_000
+
+
+def reverse_numeric_sort_order(number: int):
+    return LARGE_NUMBER - number
 
 
 CONFIG_FILE = ".audit.cfg"
@@ -47,38 +54,43 @@ archive_option = typer.Option(False, "--include-archived-repositories/--exclude-
 output_option = typer.Option(None, "--output", "-o")
 
 
-class ReportBase:
+class ReportBase(abc.ABC):
 
-    def __init__(self, started, output):
+    def __init__(self, started: datetime, output):
         self.started = started
         self.output = output
 
+    @abc.abstractmethod
     def begin_report(self, title: str):
-        raise NotImplementedError(f"{self.__class__.__name__}.begin_report()")
+        pass
 
+    @abc.abstractmethod
     def end_report(self):
-        raise NotImplementedError(f"{self.__class__.__name__}.end_report()")
+        pass
 
+    @abc.abstractmethod
     def empty_line(self):
-        raise NotImplementedError(f"{self.__class__.__name__}.empty_line()")
+        pass
 
+    @abc.abstractmethod
     def begin_table(self):
-        raise NotImplementedError(f"{self.__class__.__name__}.begin_table()")
+        pass
 
+    @abc.abstractmethod
     def table_row(self, *args, **kwargs):
-        raise NotImplementedError(f"{self.__class__.__name__}.table_row()")
+        pass
 
+    @abc.abstractmethod
     def end_table(self):
-        raise NotImplementedError(f"{self.__class__.__name__}.end_table()")
+        pass
 
 
 class TextReportBase(ReportBase):
 
-    table = None
-
     def __init__(self, started, output):
         super().__init__(started, output)
         self.console = Console(file=output)
+        self.table = None
 
     def begin_report(self, title: str):
         self.console.print(title)
@@ -95,14 +107,21 @@ class TextReportBase(ReportBase):
         self.table = Table(box=box.SQUARE)
         self._table_header()
 
-    def _table_header(self):
-        raise NotImplementedError(f"{self.__class__.__name__}._table_header()")
+    @abc.abstractmethod
+    def _table_header(self, headers):
+        if self.table is None:
+            raise RuntimeError("not building a table")
+        for header, kwargs in headers:
+            self.table.add_column(header, **kwargs)
 
     def table_row(self, *args, **kwargs):
         self._table_row(*args, **kwargs)
 
+    @abc.abstractmethod
     def _table_row(self, *args, **kwargs):
-        raise NotImplementedError(f"{self.__class__.__name__}.table_row()")
+        if self.table is None:
+            raise RuntimeError("not building a table")
+        self.table.add_row(*args)
 
     def end_table(self):
         if self.table is None:
@@ -110,16 +129,14 @@ class TextReportBase(ReportBase):
         self.console.print()
         self.console.print(self.table)
         self.console.print()
+        self.table = None
 
 
 class HtmlReportBase(ReportBase):
 
     def __init__(self, started, output):
         super().__init__(started, output)
-        doc, tag, text = Doc().tagtext()
-        self.doc = doc
-        self.tag = tag
-        self.text = text
+        self.doc, self.tag, self.text = Doc().tagtext()
 
     def begin_report(self, title: str):
         self.doc.asis("<html>")
@@ -189,15 +206,21 @@ class HtmlReportBase(ReportBase):
         self.doc.asis("<table>")
         self._table_header()
 
-    def _table_header(self):
-        raise NotImplementedError(f"{self.__class__.__name__}._table_header()")
+    @abc.abstractmethod
+    def _table_header(self, *header_lines):
+        for headers in header_lines:
+            with self.tag("tr"):
+                for header, kwargs in headers:
+                    with self.tag("th", **kwargs):
+                        self.text(header)
 
     def table_row(self, *args, **kwargs):
         with self.tag("tr"):
             self._table_row(*args, **kwargs)
 
+    @abc.abstractmethod
     def _table_row(self, *args, **kwargs):
-        raise NotImplementedError(f"{self.__class__.__name__}.__table_row()")
+        pass
 
     def end_table(self):
         self.doc.asis("</table>")
@@ -310,34 +333,31 @@ class RepoTextReport(TextReportBase):
         self.include_forked_repositories = include_forked_repositories
 
     def _table_header(self):
-        if self.table is None:
-            raise RuntimeError("not building a table")
-        self.table.add_column("Name")
-        if self.include_archived_repositories:
-            self.table.add_column("Archived", justify="center")
-        if self.include_forked_repositories:
-            self.table.add_column("Fork", justify="center")
-        self.table.add_column("Pushed at")
-        self.table.add_column("Pull request title")
-        self.table.add_column("Created at")
+        headers = [
+            ("Name", {}),
+            ("Archived", dict(justify="center")) if self.include_archived_repositories else None,
+            ("Fork", dict(justify="center")) if self.include_forked_repositories else None,
+            ("Pushed at", {}),
+            ("Pull request title", {}),
+            ("Created at", {}),
+        ]
+        super()._table_header(headers)
 
     def _table_row(
             self,
             repo_name=None, archived=None, fork=None, pushed_at=None, title=None, created_at=None,
             rowspan=0, first=False
     ):
-        if self.table is None:
-            raise RuntimeError("not building a table")
         row = []
         row.append(repo_name)
         if self.include_archived_repositories:
             row.append(format_bool(archived) if archived is not None else None)
         if self.include_forked_repositories:
             row.append(format_bool(fork) if fork is not None else None)
-        row.append(f"{format_friendly_timestamp(pushed_at, self.started)}" if pushed_at is not None else None)
+        row.append(format_friendly_timestamp(pushed_at, self.started) if pushed_at is not None else None)
         if title and created_at:
-            row.extend([title, f"{format_friendly_timestamp(created_at, self.started)}"])
-        self.table.add_row(*row)
+            row.extend([title, format_friendly_timestamp(created_at, self.started)])
+        super()._table_row(*row)
 
 
 class RepoHtmlReport(HtmlReportBase):
@@ -355,24 +375,19 @@ class RepoHtmlReport(HtmlReportBase):
         self._command_options(options)
 
     def _table_header(self):
-        with self.tag("tr"):
-            with self.tag("th", rowspan=2):
-                self.text("Name")
-            if self.include_archived_repositories:
-                with self.tag("th", rowspan=2):
-                    self.text("Archived")
-            if self.include_forked_repositories:
-                with self.tag("th", rowspan=2):
-                    self.text("Fork")
-            with self.tag("th", rowspan=2):
-                self.text("Pushed at")
-            with self.tag("th", colspan=2, klass="column-group-header"):
-                self.text("Pull request")
-        with self.tag("tr"):
-            with self.tag("th"):
-                self.text("Title")
-            with self.tag("th"):
-                self.text("Created at")
+        headers_1 = [
+            ("Name", dict(rowspan=2)),
+            ("Archived", dict(rowspan=2)) if self.include_archived_repositories else None,
+            ("Fork", dict(rowspan=2)) if self.include_forked_repositories else None,
+            ("Pushed at", dict(rowspan=2)),
+            ("Pull request", dict(colspan=2, klass="column-group-header")),
+        ]
+        headers_1 = [header for header in headers_1 if header is not None]
+        headers_2 = [
+            ("Title", {}),
+            ("Created at", {}),
+        ]
+        super()._table_header(headers_1, headers_2)
 
     def _table_row(
             self,
@@ -447,7 +462,7 @@ def repos(
     report = report_class(started, output, include_archived_repositories, include_forked_repositories)
     report.begin_report(title)
     report.begin_table()
-    for repo in sorted(repositories, key=lambda x: x['name'].lower()):
+    for repo in sorted(repositories, key=lambda repo: repo['name'].lower()):
         open_pull_requests = repo["open_pull_requests"]
         columns = [
             repo["name"],
@@ -472,16 +487,14 @@ class RepoContributionsTextReport(TextReportBase):
         self.include_forked_repositories = include_forked_repositories
 
     def _table_header(self):
-        if self.table is None:
-            raise RuntimeError("not building a table")
-
-        self.table.add_column("Name")
-        self.table.add_column("Contributor")
-        self.table.add_column("Nr. of contributions", justify="right")
+        headers = [
+            ("Name", {}),
+            ("Contributor", {}),
+            ("Nr. of contributions", dict(justify="right")),
+        ]
+        super()._table_header(headers)
 
     def _table_row(self, repo_name=None, contributor=None, rowspan=0, first=False):
-        if self.table is None:
-            raise RuntimeError("not building a table")
         row = []
         row.append(repo_name)
         if contributor is not None:
@@ -489,7 +502,7 @@ class RepoContributionsTextReport(TextReportBase):
             row.append(format_int(contributor.get("contributions")))
         else:
             row.extend((None, None))
-        self.table.add_row(*row)
+        super()._table_row(*row)
 
 
 class RepoContributionsHtmlReport(HtmlReportBase):
@@ -507,22 +520,18 @@ class RepoContributionsHtmlReport(HtmlReportBase):
         self._command_options(options)
 
     def _table_header(self):
-        with self.tag("tr"):
-            with self.tag("th", rowspan=2):
-                self.text("Name")
-            with self.tag("th", colspan=5, klass="column-group-header"):
-                self.text("Contributor")
-        with self.tag("tr"):
-            with self.tag("th"):
-                self.text("Name")
-            with self.tag("th"):
-                self.text("Login")
-            with self.tag("th"):
-                self.text("Email")
-            with self.tag("th"):
-                self.text("Profile")
-            with self.tag("th"):
-                self.text("#contributions")
+        headers_1 = [
+            ("Name", dict(rowspan=2)),
+            ("Contributor", dict(colspan=5, klass="column-group-header")),
+        ]
+        headers_2 = [
+            ("Name", {}),
+            ("Login", {}),
+            ("Email", {}),
+            ("Profile", {}),
+            ("#contributions", {}),
+        ]
+        super()._table_header(headers_1, headers_2)
 
     def _table_row(self, repo_name=None, contributor=None, rowspan=0, first=False):
         klass_first_row = {"klass": "first-row"} if first else {}
@@ -568,7 +577,10 @@ def repo_contributions(
                 )
                 for contributor in sorted(
                     get_contributors(repo),
-                    key=lambda contributor: (1_000_000_000 - contributor.contributions, contributor.login.lower())
+                    key=lambda contributor: (
+                        reverse_numeric_sort_order(contributor.contributions),
+                        contributor.login.lower(),
+                    )
                 )
             ]
         )
@@ -593,10 +605,13 @@ def repo_contributions(
     report = report_class(started, output, include_archived_repositories, include_forked_repositories)
     report.begin_report(title)
     report.begin_table()
-    for repo in sorted(repositories, key=lambda x: x['name'].lower()):
+    for repo in sorted(repositories, key=lambda repo: repo['name'].lower()):
         contributors = list(sorted(
             repo['contributors'],
-            key=lambda x: (1_000_000_000 - x['contributions'], x['login'].lower())
+            key=lambda contributor: (
+                reverse_numeric_sort_order(contributor['contributions']),
+                contributor['login'].lower()
+            )
         ))
         if len(contributors) == 0:
             contributors = [{}]
@@ -610,42 +625,34 @@ def repo_contributions(
 class MembersTextReport(TextReportBase):
 
     def _table_header(self):
-        if self.table is None:
-            raise RuntimeError("not building a table")
-        self.table.add_column("Member")
-        self.table.add_column("Membership state")
-        self.table.add_column("Membership role")
+        headers = [
+            ("Member", {}),
+            ("Membership state", {}),
+            ("Membership role", {}),
+        ]
+        super()._table_header(headers)
 
     def _table_row(self, member):
-        if self.table is None:
-            raise RuntimeError("not building a table")
-        self.table.add_row(format_member(member), member['membership_state'], member['membership_role'])
+        super()._table_row(format_member(member), member['membership_state'], member['membership_role'])
 
 
 class MembersHtmlReport(HtmlReportBase):
 
     def _table_header(self):
-
-        with self.tag("tr"):
-            with self.tag("th", colspan=4, klass="column-group-header"):
-                self.text("Member")
-            self.doc.stag("th")
-            with self.tag("th", colspan=2, klass="column-group-header"):
-                self.text("Membership")
-        with self.tag("tr"):
-            with self.tag("th"):
-                self.text("Name")
-            with self.tag("th"):
-                self.text("Login")
-            with self.tag("th"):
-                self.text("Email")
-            with self.tag("th"):
-                self.text("Profile")
-            self.doc.stag("th")
-            with self.tag("th"):
-                self.text("state")
-            with self.tag("th"):
-                self.text("role")
+        headers_1 = [
+            ("Member", dict(colspan=4, klass="column-group-header")),
+            ("Membership", dict(colspan=2, klass="column-group-header")),
+        ]
+        headers_2 = [
+            ("Name", {}),
+            ("Login", {}),
+            ("Email", {}),
+            ("Profile", {}),
+            ("", {}),
+            ("state", {}),
+            ("role", {}),
+        ]
+        super()._table_header(headers_1, headers_2)
 
     def _table_row(self, member):
         email = member.get("email")

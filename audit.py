@@ -341,6 +341,7 @@ class RepoTextReport(TextReportBase):
             ("Pull request title", {}),
             ("Created at", {}),
         ]
+        headers = [header for header in headers if header is not None]
         super()._table_header(headers)
 
     def _table_row(

@@ -1,44 +1,39 @@
 
 import github.GithubObject
+import github.PaginatedList
+import github_addition.GithubCodeScanRule
+import github_addition.GithubCodeScanTool
+import github_addition.GithubCodeScanAlertInstance
 
 
-class CodeScanAlert(github.GithubObject.CompletableGithubObject):
+class CodeScanAlert(github.GithubObject.NonCompletableGithubObject):
     """
-    This class represents Alerts from code scanning.
+    This class represents alerts from code scanning.
     The reference can be found here https://docs.github.com/en/rest/reference/code-scanning.
     """
 
     def __repr__(self):
-        return self.get__repr__({
-            "number": self.number,
-            "rule": self.rule.get("description", "--"),
-            "message": self.most_recent_instance.get("message", {}).get("text", "--"),
-            "created_at": self.created_at,
-            "dismissed_at": self.dismissed_at,
-        })
+        return self.get__repr__({"number": self.number})
 
     @property
     def number(self):
         """
         :type: int
         """
-        self._completeIfNotSet(self._number)
         return self._number.value
 
     @property
     def rule(self):
         """
-        :type: dict
+        :type: :class: `github_addition.GithubCodeScanRule.CodeScanRule`
         """
-        self._completeIfNotSet(self._rule)
         return self._rule.value
 
     @property
     def tool(self):
         """
-        :type: dict
+        :type:  :class: `github_addition.GithubCodeScanTool.CodeScanTool`
         """
-        self._completeIfNotSet(self._tool)
         return self._tool.value
 
     @property
@@ -46,7 +41,6 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         """
         :type: datetime
         """
-        self._completeIfNotSet(self._created_at)
         return self._created_at.value
 
     @property
@@ -54,7 +48,6 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         """
         :type: datetime
         """
-        self._completeIfNotSet(self._dismissed_at)
         return self._dismissed_at.value
 
     @property
@@ -62,7 +55,6 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         """
         :type: dict
         """
-        self._completeIfNotSet(self._dismissed_by)
         return self._dismissed_by.value
 
     @property
@@ -70,7 +62,6 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         """
         :type: str
         """
-        self._completeIfNotSet(self._dismissed_reason)
         return self._dismissed_reason.value
 
     @property
@@ -78,7 +69,6 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         """
         :type: string
         """
-        self._completeIfNotSet(self._url)
         return self._url.value
 
     @property
@@ -86,7 +76,6 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         """
         :type: string
         """
-        self._completeIfNotSet(self._html_url)
         return self._html_url.value
 
     @property
@@ -94,7 +83,6 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         """
         :type: string
         """
-        self._completeIfNotSet(self._instances_url)
         return self._instances_url.value
 
     @property
@@ -102,7 +90,6 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         """
         :type: dict
         """
-        self._completeIfNotSet(self._most_recent_instance)
         return self._most_recent_instance.value
 
     @property
@@ -110,8 +97,19 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         """
         :type: str
         """
-        self._completeIfNotSet(self._state)
         return self._state.value
+
+    def get_instances(self):
+        """
+        :calls: `GET` on the URL for instances as provided by Github
+        :rtype: :class:`github.PaginatedList.PaginatedList` of :class:`github_addition.GithubCodeScanAlertInstance.CodeScanAlertInstance`
+        """
+        return github.PaginatedList.PaginatedList(
+            github_addition.GithubCodeScanAlertInstance.CodeScanAlertInstance,
+            self._requester,
+            self.instances_url,
+            None
+        )
 
     def _initAttributes(self):
         self._number = github.GithubObject.NotSet
@@ -134,9 +132,13 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
         if "number" in attributes:  # pragma no branch
             self._number = self._makeIntAttribute(attributes["number"])
         if "rule" in attributes:  # pragma no branch
-            self._rule = self._makeDictAttribute(attributes["rule"])
+            self._rule = self._makeClassAttribute(
+                github_addition.GithubCodeScanRule.CodeScanRule, attributes["rule"]
+            )
         if "tool" in attributes:  # pragma no branch
-            self._tool = self._makeDictAttribute(attributes["tool"])
+            self._tool = self._makeClassAttribute(
+                github_addition.GithubCodeScanTool.CodeScanTool, attributes["tool"]
+            )
 
         if "created_at" in attributes:  # pragma no branch
             self._created_at = self._makeDatetimeAttribute(attributes["created_at"])
@@ -153,6 +155,8 @@ class CodeScanAlert(github.GithubObject.CompletableGithubObject):
             self._instances_url = self._makeStringAttribute(attributes["instances_url"])
 
         if "most_recent_instance" in attributes:  # pragma no branch
-            self._most_recent_instance = self._makeDictAttribute(attributes["most_recent_instance"])
+            self._most_recent_instance = self._makeClassAttribute(
+                github_addition.GithubCodeScanAlertInstance.CodeScanAlertInstance, attributes["most_recent_instance"]
+            )
         if "state" in attributes:  # pragma no branch
             self._state = self._makeStringAttribute(attributes["state"])

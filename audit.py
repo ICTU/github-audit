@@ -6,11 +6,20 @@ from enum import Enum
 from typing import Optional, Tuple, Generator
 from datetime import datetime
 
-from github import Github
+from github import Github, GithubException
 from github.Membership import Membership
 from github.NamedUser import NamedUser
 from github.Organization import Organization
 from github.Repository import Repository
+
+try:
+    from github.GithubCodeScanAlert import CodeScanAlert
+    using_github_package = True
+except ImportError:
+    from github.Requester import Requester
+    from github.PaginatedList import PaginatedList
+    from github_addition.GithubCodeScanAlert import CodeScanAlert
+    using_github_package = False
 
 from rich.console import Console
 from rich.table import Table, Column
@@ -711,6 +720,240 @@ def members(
     report.begin_table()
     for member in member_info:
         report.table_row(member)
+    report.end_table()
+    report.end_report()
+
+
+class RepoCodeScanAlertsTextReport(TextReportBase):
+
+    def _table_header(self):
+        headers = [
+            ("Alert\nRepository", {}),
+            ("Alert\nCreated", {}),
+            ("Tool\nName", {}),
+            ("Tool\nVersion", {}),
+            ("Rule\nName", {}),
+            ("Rule\nDescription", {}),
+            ("Rule\nLevel", {}),
+            ("Rule\nSeverity", {}),
+            ("Instance\nRef", {}),
+            ("Instance\nState", {}),
+        ]
+        super()._table_header(headers)
+
+    def _table_row(self, repo_name, alert):
+        if alert["dismissed_at"] is not None:
+            return
+
+        tool = alert.get("tool", {})
+        rule = alert.get("rule", {})
+        most_recent = alert.get("most_recent_instance", {})
+        row = [
+            repo_name,
+            alert.get("created_at"),
+            tool.get("name"),
+            tool.get("version"),
+            rule.get("name"),
+            rule.get("description"),
+            rule.get("security_severity_level"),
+            rule.get("severity"),
+            most_recent.get("ref"),
+            most_recent.get("state"),
+        ]
+        super()._table_row(*row)
+
+
+class RepoCodeScanAlertsHtmlReport(HtmlReportBase):
+
+    def _table_header(self):
+        EMPTY_COLUMN = ("", {})
+        headers_1 = [
+            ("Alert", dict(colspan=2, klass="column-group-header")),
+            EMPTY_COLUMN,
+            ("Tool", dict(colspan=2, klass="column-group-header")),
+            EMPTY_COLUMN,
+            ("Rule", dict(colspan=4, klass="column-group-header")),
+            EMPTY_COLUMN,
+            ("Instance", dict(colspan=4, klass="column-group-header")),
+        ]
+        headers_2 = [
+            ("Repository", {}),
+            ("Created", {}),
+            EMPTY_COLUMN,
+            ("Name", {}),
+            ("Version", {}),
+            EMPTY_COLUMN,
+            ("Name", {}),
+            ("Description", {}),
+            ("Level", {}),
+            ("Severity", {}),
+            EMPTY_COLUMN,
+            ("Ref", {}),
+            ("State", {}),
+        ]
+        super()._table_header(headers_1, headers_2)
+
+    def _table_row(self, repo_name, alert):
+        if alert["dismissed_at"] is not None:
+            return
+
+        tool = alert.get("tool", {})
+        rule = alert.get("rule", {})
+        most_recent = alert.get("most_recent_instance", {})
+        with self.tag("td"):
+            self.text(repo_name)
+        with self.tag("td"):
+            self.text(alert.get("created_at") or "")
+        self.doc.stag("td")
+        with self.tag("td"):
+            self.text(tool.get("name") or "")
+        with self.tag("td"):
+            self.text(tool.get("version") or "")
+        self.doc.stag("td")
+        with self.tag("td"):
+            self.text(rule.get("name") or "")
+        with self.tag("td"):
+            self.text(rule.get("description") or "")
+        with self.tag("td"):
+            self.text(rule.get("security_severity_level") or "")
+        with self.tag("td"):
+            self.text(rule.get("severity") or "")
+        self.doc.stag("td")
+        with self.tag("td"):
+            self.text(most_recent.get("ref") or "")
+        with self.tag("td"):
+            self.text(most_recent.get("state") or "")
+
+
+def convert_alert_instance(instance):
+    converted = {
+        "ref": instance.ref,
+        "state": instance.state,
+        "commit_sha": instance.commit_sha,
+        "location": {
+            "path": instance.location.path,
+            "start_line": instance.location.start_line,
+            "start_column": instance.location.start_column,
+            "end_line": instance.location.start_line,
+            "end_column": instance.location.start_column,
+        },
+        "analysis_key": instance.analysis_key,
+        "message": instance.message.get('text')
+    }
+    return converted
+
+
+JSON_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
+
+
+def convert_alert(alert, verbose):
+    converted = {
+        "number": alert.number,
+        "created_at": alert.created_at.strftime(JSON_DATETIME_FORMAT) if alert.created_at else None,
+        "dismissed_at": alert.dismissed_at.strftime(JSON_DATETIME_FORMAT) if alert.dismissed_at else None,
+        "tool": {
+            "name": alert.tool.name,
+            "version": alert.tool.version,
+        },
+        "rule": {
+            "name": alert.rule.name,
+            "description": alert.rule.description,
+            "security_severity_level": alert.rule.security_severity_level,
+            "severity": alert.rule.severity,
+        },
+        "most_recent_instance": convert_alert_instance(alert.most_recent_instance),
+    }
+    if verbose:
+        converted["instances"] = [convert_alert_instance(instance) for instance in alert.get_instances()]
+    return converted
+
+
+def empty_alert():
+    converted = {
+        "number": "",
+        "created_at": None,
+        "dismissed_at": None,
+        "tool": {},
+        "rule": {},
+        "most_recent_instance": {},
+        "instances": []
+    }
+    return converted
+
+
+if using_github_package:
+    def get_codescanning_alerts_for_repo(repo, verbose):
+        return [
+            convert_alert(alert, verbose)
+            for alert in repo.get_codescan_alerts()
+        ]
+else:
+    requester = Requester(
+        login_or_token=config["github.com"]["token"],
+        password=None,
+        jwt=None,
+        base_url="https://api.github.com",
+        timeout=15,
+        user_agent="PyGithub/Python",
+        per_page=30,
+        verify=True,
+        retry=None,
+        pool_size=None,
+    )
+
+    def get_codescanning_alerts_for_repo(repo, verbose):
+        return [
+            convert_alert(alert, verbose)
+            for alert in PaginatedList(CodeScanAlert, requester, f"{repo.url}/code-scanning/alerts", {})
+        ]
+
+
+@app.command()
+def codescan_alerts(
+        organization_name: str = organization_name_argument,
+        include_forked_repositories: bool = fork_option,
+        include_archived_repositories: bool = archive_option,
+        verbose: bool = typer.Option(False, "--verbose", "-v"),
+        output_format: OutputFormat = output_format_option,
+        output: typer.FileTextWrite = output_option,
+) -> None:
+    started = datetime.now()
+    title = f"Codescan alerts for repos of {organization_name} on github"
+
+    organization = g.get_organization(organization_name)
+    repo_alerts = {}
+    for repo in get_repos(organization, include_forked_repositories, include_archived_repositories):
+        try:
+            repo_alerts[repo.full_name] = get_codescanning_alerts_for_repo(repo, verbose)
+        except GithubException as e:
+            pass
+
+    if output_format == OutputFormat.json:
+        output_json(repo_alerts, output)
+        return
+
+    report_class = {
+        OutputFormat.html: RepoCodeScanAlertsHtmlReport,
+        OutputFormat.text: RepoCodeScanAlertsTextReport,
+    }.get(output_format)
+    if report_class is None:
+        OutputFormat.unknown(output_format)
+        return
+
+    report = report_class(started, output)
+    report.begin_report(title)
+    report.begin_table()
+    for repo, alerts in repo_alerts.items():
+        for alert in alerts:
+            report.table_row(repo, alert)
+            instances = alert.get("instances", []) if verbose else []
+            last_state = None
+            for instance in instances:
+                if last_state != instance["state"]:
+                    dummy_alert = empty_alert()
+                    dummy_alert["most_recent_instance"] = instance
+                    report.table_row("", dummy_alert)
+                last_state = instance["state"]
     report.end_table()
     report.end_report()
 

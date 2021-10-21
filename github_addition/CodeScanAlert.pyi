@@ -3,9 +3,9 @@ from datetime import datetime
 
 import github.GithubObject
 import github.PaginatedList
-import github_addition.GithubCodeScanRule
-import github_addition.GithubCodeScanTool
-import github_addition.GithubCodeScanAlertInstance
+import github.CodeScanRule
+import github.CodeScanTool
+import github.CodeScanAlertInstance
 
 
 class CodeScanAlert(github.GithubObject.NonCompletableGithubObject):
@@ -13,9 +13,9 @@ class CodeScanAlert(github.GithubObject.NonCompletableGithubObject):
     @property
     def number(self) -> int: ...
     @property
-    def rule(self) -> github_addition.GithubCodeScanRule.CodeScanRule: ...
+    def rule(self) -> github.CodeScanRule.CodeScanRule: ...
     @property
-    def tool(self) -> github_addition.GithubCodeScanTool.CodeScanTool: ...
+    def tool(self) -> github.CodeScanTool.CodeScanTool: ...
     @property
     def created_at(self) -> datetime: ...
     @property
@@ -31,7 +31,7 @@ class CodeScanAlert(github.GithubObject.NonCompletableGithubObject):
     @property
     def instances_url(self) -> str: ...
     @property
-    def most_recent_instance(self) -> github_addition.GithubCodeScanAlertInstance.CodeScanAlertInstance: ...
+    def most_recent_instance(self) -> github.CodeScanAlertInstance.CodeScanAlertInstance: ...
     @property
     def state(self) -> str: ...
 

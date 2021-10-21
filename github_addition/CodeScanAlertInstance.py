@@ -1,6 +1,6 @@
 
 import github.GithubObject
-import github_addition.GithubCodeScanAlertInstanceLocation
+import github_addition.CodeScanAlertInstanceLocation
 
 
 class CodeScanAlertInstance(github.GithubObject.NonCompletableGithubObject):
@@ -10,7 +10,7 @@ class CodeScanAlertInstance(github.GithubObject.NonCompletableGithubObject):
     """
 
     def __repr__(self):
-        return self.get__repr__({"ref": self.ref})
+        return self.get__repr__({"ref": self.ref, "analysis_key": self.analysis_key})
 
     @property
     def ref(self):
@@ -57,7 +57,7 @@ class CodeScanAlertInstance(github.GithubObject.NonCompletableGithubObject):
     @property
     def location(self):
         """
-        :type: :class: `github_addition.GithubCodeScanAlertInstanceLocation.CodeScanAlertInstanceLocation`
+        :type: :class: `github_addition.CodeScanAlertInstanceLocation.CodeScanAlertInstanceLocation`
         """
         return self._location.value
 
@@ -95,7 +95,7 @@ class CodeScanAlertInstance(github.GithubObject.NonCompletableGithubObject):
             self._message = self._makeDictAttribute(attributes["message"])
         if "location" in attributes:  # pragma no branch
             self._location = self._makeClassAttribute(
-                github_addition.GithubCodeScanAlertInstanceLocation.CodeScanAlertInstanceLocation, attributes["location"]
+                github_addition.CodeScanAlertInstanceLocation.CodeScanAlertInstanceLocation, attributes["location"]
             )
         if "classifications" in attributes:  # pragma no branch
             self._classifications = self._makeListOfStringsAttribute(attributes["classifications"])

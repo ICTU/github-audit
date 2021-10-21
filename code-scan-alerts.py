@@ -4,12 +4,12 @@ from github import Github
 import github.GithubException
 
 try:
-    from github.GithubCodeScanAlert import CodeScanAlert
+    import github.CodeScanAlert
     using_github_package = True
 except ImportError:
     from github.Requester import Requester
     from github.PaginatedList import PaginatedList
-    from github_addition.GithubCodeScanAlert import CodeScanAlert
+    from github_addition.CodeScanAlert import CodeScanAlert
     using_github_package = False
 
 

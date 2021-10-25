@@ -1,6 +1,7 @@
 
 import github.GithubObject
 import github.PaginatedList
+import github.NamedUser
 import github_addition.CodeScanRule
 import github_addition.CodeScanTool
 import github_addition.CodeScanAlertInstance
@@ -25,14 +26,14 @@ class CodeScanAlert(github.GithubObject.NonCompletableGithubObject):
     @property
     def rule(self):
         """
-        :type: :class: `github.CodeScanRule.CodeScanRule`
+        :type: :class: `github_addition.CodeScanRule.CodeScanRule`
         """
         return self._rule.value
 
     @property
     def tool(self):
         """
-        :type:  :class: `github.CodeScanTool.CodeScanTool`
+        :type:  :class: `github_addition.CodeScanTool.CodeScanTool`
         """
         return self._tool.value
 
@@ -53,7 +54,7 @@ class CodeScanAlert(github.GithubObject.NonCompletableGithubObject):
     @property
     def dismissed_by(self):
         """
-        :type: dict
+        :type: :class: `github.NamedUser.NamedUser`
         """
         return self._dismissed_by.value
 
@@ -88,7 +89,7 @@ class CodeScanAlert(github.GithubObject.NonCompletableGithubObject):
     @property
     def most_recent_instance(self):
         """
-        :type: dict
+        :type: :class: github_addition.CodeScanAlertInstance.CodeScanAlertInstance
         """
         return self._most_recent_instance.value
 
@@ -102,7 +103,7 @@ class CodeScanAlert(github.GithubObject.NonCompletableGithubObject):
     def get_instances(self):
         """
         :calls: `GET` on the URL for instances as provided by Github
-        :rtype: :class:`github.PaginatedList.PaginatedList` of :class:`github_addition.CodeScanAlertInstance.pyi.CodeScanAlertInstance`
+        :rtype: :class:`github.PaginatedList.PaginatedList` of :class:`github_addition.CodeScanAlertInstance.CodeScanAlertInstance`
         """
         return github.PaginatedList.PaginatedList(
             github_addition.CodeScanAlertInstance.CodeScanAlertInstance,
@@ -145,7 +146,9 @@ class CodeScanAlert(github.GithubObject.NonCompletableGithubObject):
         if "dismissed_at" in attributes:  # pragma no branch
             self._dismissed_at = self._makeDatetimeAttribute(attributes["dismissed_at"])
         if "dismissed_by" in attributes:  # pragma no branch
-            self._dismissed_by = self._makeDictAttribute(attributes["dismissed_by"])
+            self._dismissed_by = self._makeClassAttribute(github.NamedUser.NamedUser, attributes["dismissed_by"])
+        if "dismissed_reason" in attributes:  # pragma no branch
+            self._dismissed_reason = self._makeStringAttribute(attributes["dismissed_reason"])
 
         if "url" in attributes:  # pragma no branch
             self._url = self._makeStringAttribute(attributes["url"])

@@ -12,6 +12,11 @@ from github.NamedUser import NamedUser
 from github.Organization import Organization
 from github.Repository import Repository
 
+
+# The code in github_addition is submitted as a pull request to the maintainers of the github package (PyGithub).
+# To start using the code already a copy is included here.
+# As soon as the pull request is included in the official package and updated for the environment where this code
+# runs, this code will automatically switch to use the version in the official package.
 try:
     from github.CodeScanAlert import CodeScanAlert
     using_github_package = True
@@ -826,6 +831,9 @@ class RepoCodeScanAlertsHtmlReport(HtmlReportBase):
 
 
 def convert_alert_instance(instance):
+    """
+    convert from a CodeScanningAlertInstance to a dict suitable for reporting
+    """
     converted = {
         "ref": instance.ref,
         "state": instance.state,
@@ -847,6 +855,10 @@ JSON_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 
 def convert_alert(alert, verbose):
+    """
+    convert from a CodeScanningAlert to a dict suitable for reporting
+    verbose conversion include converted instances (i.e. history)
+    """
     converted = {
         "number": alert.number,
         "created_at": alert.created_at.strftime(JSON_DATETIME_FORMAT) if alert.created_at else None,
@@ -888,6 +900,9 @@ if using_github_package:
             for alert in repo.get_codescan_alerts()
         ]
 else:
+    # not yet using the official package
+    # which means Repository does not yet have the `get_codescan_alerts()` method
+    # must emulate the method
     requester = Requester(
         login_or_token=config["github.com"]["token"],
         password=None,

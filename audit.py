@@ -12,17 +12,18 @@ from github.NamedUser import NamedUser
 from github.Organization import Organization
 from github.Repository import Repository
 
+
 # The code in github_addition is submitted as a pull request to the maintainers of the github package (PyGithub).
 # To start using the code already a copy is included here.
 # As soon as the pull request is included in the official package and updated for the environment where this code
 # runs, this code will automatically switch to use the version in the official package.
 try:
-    from github.GithubCodeScanAlert import CodeScanAlert
+    from github.CodeScanAlert import CodeScanAlert
     using_github_package = True
 except ImportError:
     from github.Requester import Requester
     from github.PaginatedList import PaginatedList
-    from github_addition.GithubCodeScanAlert import CodeScanAlert
+    from github_addition.CodeScanAlert import CodeScanAlert
     using_github_package = False
 
 from rich.console import Console
@@ -880,7 +881,7 @@ def convert_alert(alert, verbose):
 
 
 def empty_alert():
-    return {
+    converted = {
         "number": "",
         "created_at": None,
         "dismissed_at": None,
@@ -889,6 +890,7 @@ def empty_alert():
         "most_recent_instance": {},
         "instances": []
     }
+    return converted
 
 
 if using_github_package:

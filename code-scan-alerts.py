@@ -4,12 +4,12 @@ from github import Github
 import github.GithubException
 
 try:
-    from github.GithubCodeScanAlert import CodeScanAlert
+    import github.CodeScanAlert
     using_github_package = True
 except ImportError:
     from github.Requester import Requester
     from github.PaginatedList import PaginatedList
-    from github_addition.GithubCodeScanAlert import CodeScanAlert
+    from github_addition.CodeScanAlert import CodeScanAlert
     using_github_package = False
 
 
@@ -69,13 +69,18 @@ print()
 if not repo_alerts:
     print("no repos with code scanning alerts")
 else:
+    dquote = '"'
     print("T(ool) - R(ule) - A(lert) - H(istory of alerts) for repositories:")
     for repo, alerts in sorted(repo_alerts.items()):
         print(repo)
         for alert in sorted(alerts, key=lambda alert: alert.number, reverse=True):
-            print(f"  # {alert.number}"
-                  f" : {alert.created_at if alert.created_at else '--'}"
-                  f" | {alert.dismissed_at if alert.dismissed_at else '--'}")
+            print(
+                f"  # {alert.number}"
+                f" : {alert.created_at if alert.created_at else '--'}"
+                f" | {alert.dismissed_at if alert.dismissed_at else '--'}"
+                f"{' by '+alert.dismissed_by.login if alert.dismissed_by else ''}"
+                f"{' '+dquote+alert.dismissed_reason+dquote if alert.dismissed_reason else ''}"
+            )
             print(f"    T {alert.tool.name} {alert.tool.version} | {alert.tool.guid}")
             print(f"    R {alert.rule.name} | {alert.rule.security_severity_level} | {alert.rule.severity}")
             print(f"      {alert.rule.description}")

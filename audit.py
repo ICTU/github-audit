@@ -1,4 +1,6 @@
-"""Audit GitHub organizations."""
+"""
+Audit GitHub organizations.
+"""
 import abc
 import configparser
 import json
@@ -11,20 +13,6 @@ from github.Membership import Membership
 from github.NamedUser import NamedUser
 from github.Organization import Organization
 from github.Repository import Repository
-
-
-# The code in github_addition is submitted as a pull request to the maintainers of the github package (PyGithub).
-# To start using the code already a copy is included here.
-# As soon as the pull request is included in the official package and updated for the environment where this code
-# runs, this code will automatically switch to use the version in the official package.
-try:
-    from github.CodeScanAlert import CodeScanAlert
-    using_github_package = True
-except ImportError:
-    from github.Requester import Requester
-    from github.PaginatedList import PaginatedList
-    from github_addition.CodeScanAlert import CodeScanAlert
-    using_github_package = False
 
 from rich.console import Console
 from rich.table import Table, Column
@@ -893,34 +881,11 @@ def empty_alert():
     return converted
 
 
-if using_github_package:
-    def get_codescanning_alerts_for_repo(repo, verbose):
-        return [
-            convert_alert(alert, verbose)
-            for alert in repo.get_codescan_alerts()
-        ]
-else:
-    # not yet using the official package
-    # which means Repository does not yet have the `get_codescan_alerts()` method
-    # must emulate the method
-    requester = Requester(
-        login_or_token=config["github.com"]["token"],
-        password=None,
-        jwt=None,
-        base_url="https://api.github.com",
-        timeout=15,
-        user_agent="PyGithub/Python",
-        per_page=30,
-        verify=True,
-        retry=None,
-        pool_size=None,
-    )
-
-    def get_codescanning_alerts_for_repo(repo, verbose):
-        return [
-            convert_alert(alert, verbose)
-            for alert in PaginatedList(CodeScanAlert, requester, f"{repo.url}/code-scanning/alerts", {})
-        ]
+def get_codescanning_alerts_for_repo(repo, verbose):
+    return [
+        convert_alert(alert, verbose)
+        for alert in repo.get_codescan_alerts()
+    ]
 
 
 @app.command()

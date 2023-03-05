@@ -1,31 +1,39 @@
 """
 Audit GitHub organizations.
 """
+from __future__ import annotations
+
 import abc
 import configparser
 import json
-from enum import Enum
-from typing import Optional, Tuple, Generator
+
 from datetime import datetime
+from enum import StrEnum, auto
+from typing import Generator, Iterable, Any
+
+import timeago
+import typer
 
 from github import Github, GithubException
+from github.CodeScanAlert import CodeScanAlert
+from github.CodeScanAlertInstance import CodeScanAlertInstance
 from github.Membership import Membership
 from github.NamedUser import NamedUser
 from github.Organization import Organization
 from github.Repository import Repository
 
 from rich.console import Console
-from rich.table import Table, Column
+from rich.table import Table
 from rich import box
-import typer
-import timeago
-from yattag import SimpleDoc, Doc, indent
+from yattag import Doc, indent
 
 
+REPORT_ITEMS = dict[str, Any]
 LARGE_NUMBER = 1_000_000_000_000
+JSON_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 
-def reverse_numeric_sort_order(number: int):
+def reverse_numeric_sort_order(number: int) -> int:
     return LARGE_NUMBER - number
 
 
@@ -36,14 +44,102 @@ CONFIG_FILE = ".audit.cfg"
 # token=TOKEN -- required
 
 
-class OutputFormat(str, Enum):
-    text = "text"
-    json = "json"
-    html = "html"
+class OutputFormat(StrEnum):
+    """
+    The output format fro reports
+    """
+    text = auto()
+    json = auto()
+    html = auto()
 
     @staticmethod
     def unknown(what: str) -> None:
         print(f"PANIC! unknown output format {what}")
+
+
+class ContainingEnum(StrEnum):
+    """
+    A string enum where one value may contain any number of other values from that same enum.
+    Similar to Flag and IntFlag, but for strings.
+    Create a subclass and define a dict `__contains` that maps each enum value to enum values it is supposed to contain.
+    This allows to a test like:
+         YourEnum.item1 in YourEnum.item2
+         True iff `item2` is defined to contain `item1` through `__contains`
+    As a convenience als automatically converts strings to enum instances for easy testing:
+        "foo" in YourEnum.item2
+        True iff "foo" converts to a `YourEnum` instance and is contained in `YourEnum.item2`
+    NOTE You will need to explicitly define whether an enum item is supposed to contain itself.
+    """
+
+    @property
+    def __contains(self) -> dict[ContainingEnum, set[ContainingEnum, ...]]:
+        """
+        dynamical name mangling to make override in subclass effective
+        """
+        return getattr(self, f"_{self.__class__.__name__}__contains")
+
+    def __contains__(self, other: Any) -> bool:
+        """
+        check whether `other` is included in our enum value
+        """
+        if isinstance(other, self.__class__):
+            pass
+        elif isinstance(other, str):
+            try:
+                other = self.__class__(other)
+            except ValueError:
+                return False
+        else:
+            return False
+
+        return other in self.__contains.get(self, {})
+
+
+class State(ContainingEnum):
+    """
+    state of a code scanning alert
+    """
+    all = auto()
+    open = auto()
+    fixed = auto()
+    dismissed = auto()
+
+    __contains = {
+        all: {open, fixed, dismissed, },  # `all` is a pseudo state
+        open: {open, },
+        fixed: {fixed, },
+        dismissed: {dismissed, },
+    }
+
+
+class SecuritySeverityLevel(ContainingEnum):
+    """
+    security severity level associated with a code scanning rule for which an alert was given
+    """
+    low = auto()
+    medium = auto()
+    high = auto()
+
+    __contains = {
+        high: {high, },
+        medium: {high, medium, },
+        low: {low, medium, high, },
+    }
+
+
+class Severity(ContainingEnum):
+    """
+    severity associated with a code scanning rule for which an alert was given
+    """
+    note = auto()
+    warning = auto()
+    error = auto()
+
+    __contains = {
+        error: {error, },
+        warning: {warning, error, },
+        note: {note, warning, error, },
+    }
 
 
 config = configparser.ConfigParser()
@@ -54,11 +150,14 @@ output_format_option = typer.Option(OutputFormat.text, "--format")
 fork_option = typer.Option(True, "--include-forked-repositories/--exclude-forked-repositories", "-f/-F")
 archive_option = typer.Option(False, "--include-archived-repositories/--exclude-archived-repositories", "-a/-A")
 output_option = typer.Option(None, "--output", "-o")
+state_option = typer.Option(State.open, "--state")
+security_severity_level_option = typer.Option(None, "--level", "-L")
+severity_option = typer.Option(None, "--severity", "-S")
 
 
 class ReportBase(abc.ABC):
 
-    def __init__(self, started: datetime, output):
+    def __init__(self, started: datetime | None, output: typer.FileTextWrite | None):
         self.started = started
         self.output = output
 
@@ -107,7 +206,7 @@ class TextReportBase(ReportBase):
         if self.table is not None:
             raise RuntimeError("already building a table")
         self.table = Table(box=box.SQUARE)
-        self._table_header()
+        self._table_header([])
 
     @abc.abstractmethod
     def _table_header(self, headers):
@@ -228,6 +327,41 @@ class HtmlReportBase(ReportBase):
         self.doc.asis("</table>")
 
 
+# Error reporting
+
+class SimpleTableReport(TextReportBase):
+
+    def __init__(self, *headers):
+        super().__init__(None, None)
+        self._headers = headers
+
+    def begin_report(self, title: str):
+        super().empty_line()
+        super().begin_report(title)
+
+    def end_report(self):
+        super().empty_line()
+
+    def _table_header(self, headers: list):
+        headers.extend(
+            (header, {}) for header in self._headers
+        )
+        super()._table_header(headers)
+
+    def _table_row(self, *args, **kwargs):
+        super()._table_row(*args, **kwargs)
+
+
+def report_exceptions(title: str, errors: dict[str, tuple[str, str]]) -> None:
+    report = SimpleTableReport("Repository", "Message", "State")
+    report.begin_report(title)
+    report.begin_table()
+    for repo, (msg, state) in errors.items():
+        report.table_row(repo, msg, state)
+    report.end_table()
+    report.end_report()
+
+
 # Github API wrappers
 
 def get_repos(
@@ -252,7 +386,7 @@ def get_contributors(repo: Repository) -> Generator[NamedUser, None, None]:
             yield contributor
 
 
-def get_members_and_membership(organization) -> Generator[Tuple[NamedUser, Membership], None, None]:
+def get_members_and_membership(organization) -> Generator[tuple[NamedUser, Membership], None, None]:
     """Return the members of the organization and their membership."""
     with typer.progressbar(organization.get_members(), label="Collecting") as members:
         for member in members:
@@ -266,7 +400,7 @@ def format_bool(boolean: bool) -> str:
     return "\N{BALLOT BOX WITH CHECK}" if boolean else ""
 
 
-def format_int(integer: Optional[int]) -> str:
+def format_int(integer: int | None) -> str:
     """Convert the integer to a string."""
     return "" if integer is None else str(integer)
 
@@ -311,11 +445,11 @@ def create_html_url_href(url: str) -> str:
 
 # output creation
 
-def output_json(json_data: list, output: Optional[typer.FileTextWrite]) -> None:
+def output_json(json_data: Any, output: typer.FileTextWrite | None) -> None:
     """
     Output the json data
     :param json_data: data to convert to JSON
-    :param output: output file to write to (default: stdout)
+    :param output: output file to write to (default: stdout)s
     """
     typer.echo(json.dumps(json_data, indent="  "), file=output)
 
@@ -334,15 +468,15 @@ class RepoTextReport(TextReportBase):
         self.include_archived_repositories = include_archived_repositories
         self.include_forked_repositories = include_forked_repositories
 
-    def _table_header(self):
-        headers = [
+    def _table_header(self, headers: list):
+        headers.extend([
             ("Name", {}),
             ("Archived", dict(justify="center")) if self.include_archived_repositories else None,
             ("Fork", dict(justify="center")) if self.include_forked_repositories else None,
             ("Pushed at", {}),
             ("Pull request title", {}),
             ("Created at", {}),
-        ]
+        ])
         headers = [header for header in headers if header is not None]
         super()._table_header(headers)
 
@@ -489,12 +623,12 @@ class RepoContributionsTextReport(TextReportBase):
         self.include_archived_repositories = include_archived_repositories
         self.include_forked_repositories = include_forked_repositories
 
-    def _table_header(self):
-        headers = [
+    def _table_header(self, headers: list):
+        headers.extend([
             ("Name", {}),
             ("Contributor", {}),
             ("Nr. of contributions", dict(justify="right")),
-        ]
+        ])
         super()._table_header(headers)
 
     def _table_row(self, repo_name=None, contributor=None, rowspan=0, first=False):
@@ -627,12 +761,12 @@ def repo_contributions(
 
 class MembersTextReport(TextReportBase):
 
-    def _table_header(self):
-        headers = [
+    def _table_header(self, headers: list):
+        headers.extend([
             ("Member", {}),
             ("Membership state", {}),
             ("Membership role", {}),
-        ]
+        ])
         super()._table_header(headers)
 
     def _table_row(self, member):
@@ -719,8 +853,8 @@ def members(
 
 class RepoCodeScanAlertsTextReport(TextReportBase):
 
-    def _table_header(self):
-        headers = [
+    def _table_header(self, headers: list):
+        headers.extend([
             ("Alert\nRepository", {}),
             ("Alert\nCreated", {}),
             ("Tool\nName", {}),
@@ -731,7 +865,7 @@ class RepoCodeScanAlertsTextReport(TextReportBase):
             ("Rule\nSeverity", {}),
             ("Instance\nRef", {}),
             ("Instance\nState", {}),
-        ]
+        ])
         super()._table_header(headers)
 
     def _table_row(self, repo_name, alert):
@@ -818,9 +952,9 @@ class RepoCodeScanAlertsHtmlReport(HtmlReportBase):
             self.text(most_recent.get("state") or "")
 
 
-def convert_alert_instance(instance):
+def convert_alert_instance(instance: CodeScanAlertInstance) -> REPORT_ITEMS:
     """
-    convert from a CodeScanningAlertInstance to a dict suitable for reporting
+    convert from a CodeScanAlertInstance to a dict suitable for reporting
     """
     converted = {
         "ref": instance.ref,
@@ -834,15 +968,12 @@ def convert_alert_instance(instance):
             "end_column": instance.location.start_column,
         },
         "analysis_key": instance.analysis_key,
-        "message": instance.message.get('text')
+        "message": instance.message.get("text")
     }
     return converted
 
 
-JSON_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
-
-
-def convert_alert(alert, verbose):
+def convert_alert(alert: CodeScanAlert, verbose: bool) -> REPORT_ITEMS:
     """
     convert from a CodeScanningAlert to a dict suitable for reporting
     verbose conversion include converted instances (i.e. history)
@@ -862,13 +993,54 @@ def convert_alert(alert, verbose):
             "severity": alert.rule.severity,
         },
         "most_recent_instance": convert_alert_instance(alert.most_recent_instance),
+        "instances": [convert_alert_instance(instance) for instance in alert.get_instances()] if verbose else [],
     }
-    if verbose:
-        converted["instances"] = [convert_alert_instance(instance) for instance in alert.get_instances()]
     return converted
 
 
-def empty_alert():
+class AlertFilter:
+
+    def __init__(
+            self,
+            *,
+            state: State | None = None,
+            security_severity_level: SecuritySeverityLevel | None = None,
+            severity: Severity | None = None,
+    ):
+        self.state = state
+        self.security_severity_level = security_severity_level
+        self.severity = severity
+
+    def pretty(self) -> str:
+        parts = [
+            "" if self.state is None else f"state={self.state.value}",
+            "" if self.security_severity_level is None else f"level={self.security_severity_level.value}",
+            "" if self.severity is None else f"severity={self.severity.value}",
+        ]
+        parts = [part for part in parts if part != ""]
+        return "no filter" if len(parts) == 0 else f"""filter on {", ".join(parts)}"""
+
+    def __call__(self, alerts: Iterable[REPORT_ITEMS]) -> Generator[REPORT_ITEMS, None, None]:
+        checkers: tuple[ContainingEnum | None, ...] = (
+            self.state,
+            self.security_severity_level,
+            self.severity,
+        )
+        for alert in alerts:
+            values = (
+                alert.get("most_recent_instance", {}).get("state", None),
+                alert.get("rule", {}).get("security_severity_level", None),
+                alert.get("rule", {}).get("severity", None),
+            )
+            if all(
+                    value in checker
+                    for checker, value in zip(checkers, values)
+                    if checker is not None and value is not None
+            ):
+                yield alert
+
+
+def empty_alert() -> REPORT_ITEMS:
     converted = {
         "number": "",
         "created_at": None,
@@ -881,7 +1053,7 @@ def empty_alert():
     return converted
 
 
-def get_codescanning_alerts_for_repo(repo, verbose):
+def get_codescanning_alerts_for_repo(repo: Repository, verbose: bool) -> list[REPORT_ITEMS]:
     return [
         convert_alert(alert, verbose)
         for alert in repo.get_codescan_alerts()
@@ -896,17 +1068,28 @@ def codescan_alerts(
         verbose: bool = typer.Option(False, "--verbose", "-v"),
         output_format: OutputFormat = output_format_option,
         output: typer.FileTextWrite = output_option,
+        state: State = state_option,
+        security_severity_level: SecuritySeverityLevel = security_severity_level_option,
+        severity: Severity = severity_option,
 ) -> None:
     started = datetime.now()
-    title = f"Codescan alerts for repos of {organization_name} on github"
-
     organization = g.get_organization(organization_name)
     repo_alerts = {}
+    exceptions = {}
     for repo in get_repos(organization, include_forked_repositories, include_archived_repositories):
         try:
             repo_alerts[repo.full_name] = get_codescanning_alerts_for_repo(repo, verbose)
         except GithubException as e:
-            pass
+            exceptions[repo.full_name] = (
+                e.data.get("message", "unknown reason"),
+                format_int(e.status),
+            )
+
+    if exceptions:
+        report_exceptions(
+            "Exceptions for repositories while obtaining codescan alerts for Github",
+            exceptions,
+        )
 
     if output_format == OutputFormat.json:
         output_json(repo_alerts, output)
@@ -920,20 +1103,22 @@ def codescan_alerts(
         OutputFormat.unknown(output_format)
         return
 
+    alert_filter = AlertFilter(state=state, security_severity_level=security_severity_level, severity=severity)
+    title = f"Codescan alerts for repos of {organization_name} on github.com - {alert_filter.pretty()}"
     report = report_class(started, output)
     report.begin_report(title)
     report.begin_table()
     for repo, alerts in repo_alerts.items():
-        for alert in alerts:
+        for alert in alert_filter(alerts):
             report.table_row(repo, alert)
-            instances = alert.get("instances", []) if verbose else []
             last_state = None
-            for instance in instances:
+            for instance in alert.get("instances", []):
                 if last_state != instance["state"]:
                     dummy_alert = empty_alert()
                     dummy_alert["most_recent_instance"] = instance
                     report.table_row("", dummy_alert)
                 last_state = instance["state"]
+            repo = ""
     report.end_table()
     report.end_report()
 

@@ -65,7 +65,7 @@ class ContainingEnum(StrEnum):
     This allows a test like:
          YourEnum.item1 in YourEnum.item2
          True iff `item2` is defined to contain `item1` through `__contains`
-    As a convenience als automatically converts strings to enum instances for easy testing:
+    As a convenience it also automatically converts strings to enum instances for easy testing:
         "foo" in YourEnum.item2
         True iff "foo" converts to a `YourEnum` instance and is contained in `YourEnum.item2`
     NOTE You will need to explicitly define whether an enum item is supposed to contain itself.

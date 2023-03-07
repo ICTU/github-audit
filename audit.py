@@ -46,7 +46,7 @@ CONFIG_FILE = ".audit.cfg"
 
 class OutputFormat(StrEnum):
     """
-    The output format fro reports
+    The output format for reports
     """
     text = auto()
     json = auto()

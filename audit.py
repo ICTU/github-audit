@@ -62,7 +62,7 @@ class ContainingEnum(StrEnum):
     A string enum where one value may contain any number of other values from that same enum.
     Similar to Flag and IntFlag, but for strings.
     Create a subclass and define a dict `__contains` that maps each enum value to enum values it is supposed to contain.
-    This allows to a test like:
+    This allows a test like:
          YourEnum.item1 in YourEnum.item2
          True iff `item2` is defined to contain `item1` through `__contains`
     As a convenience als automatically converts strings to enum instances for easy testing:

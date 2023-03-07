@@ -445,7 +445,7 @@ def create_html_url_href(url: str) -> str:
 
 # output creation
 
-def output_json(json_data: Any, output: typer.FileTextWrite | None) -> None:
+def output_json(json_data: dict | list, output: typer.FileTextWrite | None) -> None:
     """
     Output the json data
     :param json_data: data to convert to JSON

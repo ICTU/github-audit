@@ -28,9 +28,11 @@ from rich import box
 from yattag import Doc, indent
 
 
-REPORT_ITEMS = dict[str, Any]
 LARGE_NUMBER = 1_000_000_000_000
 JSON_DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
+
+ReportItems = dict[str, Any]
+Header = list[tuple[str, dict[str, str]]]
 
 
 def reverse_numeric_sort_order(number: int) -> int:
@@ -73,9 +75,7 @@ class ContainingEnum(StrEnum):
 
     @property
     def __contains(self) -> dict[ContainingEnum, set[ContainingEnum, ...]]:
-        """
-        dynamical name mangling to make override in subclass effective
-        """
+        """Dynamical name mangling to make override in subclass effective."""
         return getattr(self, f"_{self.__class__.__name__}__contains")
 
     def __contains__(self, other: Any) -> bool:
@@ -209,7 +209,7 @@ class TextReportBase(ReportBase):
         self._table_header([])
 
     @abc.abstractmethod
-    def _table_header(self, headers):
+    def _table_header(self, headers: list[Header]):
         if self.table is None:
             raise RuntimeError("not building a table")
         for header, kwargs in headers:
@@ -342,7 +342,7 @@ class SimpleTableReport(TextReportBase):
     def end_report(self):
         super().empty_line()
 
-    def _table_header(self, headers: list):
+    def _table_header(self, headers: list[Header]):
         headers.extend(
             (header, {}) for header in self._headers
         )
@@ -449,7 +449,7 @@ def output_json(json_data: dict | list, output: typer.FileTextWrite | None) -> N
     """
     Output the json data
     :param json_data: data to convert to JSON
-    :param output: output file to write to (default: stdout)s
+    :param output: output file to write to (default: stdout)
     """
     typer.echo(json.dumps(json_data, indent="  "), file=output)
 
@@ -468,7 +468,7 @@ class RepoTextReport(TextReportBase):
         self.include_archived_repositories = include_archived_repositories
         self.include_forked_repositories = include_forked_repositories
 
-    def _table_header(self, headers: list):
+    def _table_header(self, headers: list[Header]):
         headers.extend([
             ("Name", {}),
             ("Archived", dict(justify="center")) if self.include_archived_repositories else None,
@@ -623,7 +623,7 @@ class RepoContributionsTextReport(TextReportBase):
         self.include_archived_repositories = include_archived_repositories
         self.include_forked_repositories = include_forked_repositories
 
-    def _table_header(self, headers: list):
+    def _table_header(self, headers: list[Header]):
         headers.extend([
             ("Name", {}),
             ("Contributor", {}),
@@ -761,7 +761,7 @@ def repo_contributions(
 
 class MembersTextReport(TextReportBase):
 
-    def _table_header(self, headers: list):
+    def _table_header(self, headers: list[Header]):
         headers.extend([
             ("Member", {}),
             ("Membership state", {}),
@@ -853,7 +853,7 @@ def members(
 
 class RepoCodeScanAlertsTextReport(TextReportBase):
 
-    def _table_header(self, headers: list):
+    def _table_header(self, headers: list[Header]):
         headers.extend([
             ("Alert\nRepository", {}),
             ("Alert\nCreated", {}),
@@ -952,7 +952,7 @@ class RepoCodeScanAlertsHtmlReport(HtmlReportBase):
             self.text(most_recent.get("state") or "")
 
 
-def convert_alert_instance(instance: CodeScanAlertInstance) -> REPORT_ITEMS:
+def convert_alert_instance(instance: CodeScanAlertInstance) -> ReportItems:
     """
     convert from a CodeScanAlertInstance to a dict suitable for reporting
     """
@@ -973,7 +973,7 @@ def convert_alert_instance(instance: CodeScanAlertInstance) -> REPORT_ITEMS:
     return converted
 
 
-def convert_alert(alert: CodeScanAlert, verbose: bool) -> REPORT_ITEMS:
+def convert_alert(alert: CodeScanAlert, verbose: bool) -> ReportItems:
     """
     convert from a CodeScanningAlert to a dict suitable for reporting
     verbose conversion include converted instances (i.e. history)
@@ -1020,7 +1020,7 @@ class AlertFilter:
         parts = [part for part in parts if part != ""]
         return "no filter" if len(parts) == 0 else f"""filter on {", ".join(parts)}"""
 
-    def __call__(self, alerts: Iterable[REPORT_ITEMS]) -> Generator[REPORT_ITEMS, None, None]:
+    def __call__(self, alerts: Iterable[ReportItems]) -> Generator[ReportItems, None, None]:
         checkers: tuple[ContainingEnum | None, ...] = (
             self.state,
             self.security_severity_level,
@@ -1040,7 +1040,7 @@ class AlertFilter:
                 yield alert
 
 
-def empty_alert() -> REPORT_ITEMS:
+def empty_alert() -> ReportItems:
     converted = {
         "number": "",
         "created_at": None,
@@ -1053,7 +1053,7 @@ def empty_alert() -> REPORT_ITEMS:
     return converted
 
 
-def get_codescanning_alerts_for_repo(repo: Repository, verbose: bool) -> list[REPORT_ITEMS]:
+def get_codescanning_alerts_for_repo(repo: Repository, verbose: bool) -> list[ReportItems]:
     return [
         convert_alert(alert, verbose)
         for alert in repo.get_codescan_alerts()

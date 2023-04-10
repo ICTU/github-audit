@@ -1,5 +1,5 @@
 PyGithub == 1.58
-rich == 13.3.1
+rich == 13.3.2
 typer == 0.7.0
 timeago == 1.0.16
-yattag == 1.15.0
+yattag == 1.15.1

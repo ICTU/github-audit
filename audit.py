@@ -7,7 +7,7 @@ import abc
 import configparser
 import json
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum, auto
 from typing import Generator, Iterable, Any
 
@@ -562,7 +562,7 @@ def repos(
         output_format: OutputFormat = output_format_option,
         output: typer.FileTextWrite = output_option,
 ) -> None:
-    started = datetime.now()
+    started = datetime.now(tz=UTC)
     title = f"Github repositories of {organization_name}"
 
     organization = g.get_organization(organization_name)
@@ -698,7 +698,7 @@ def repo_contributions(
         output_format: OutputFormat = output_format_option,
         output: typer.FileTextWrite = output_option,
 ) -> None:
-    started = datetime.now()
+    started = datetime.now(tz=UTC)
     title = f"Contributions to github repositories of {organization_name}"
 
     organization = g.get_organization(organization_name)
@@ -814,7 +814,7 @@ def members(
         output_format: OutputFormat = output_format_option,
         output: typer.FileTextWrite = output_option,
 ) -> None:
-    started = datetime.now()
+    started = datetime.now(tz=UTC)
     title = f"Members of {organization_name} on github"
 
     organization = g.get_organization(organization_name)
@@ -1072,7 +1072,7 @@ def codescan_alerts(
         security_severity_level: SecuritySeverityLevel = security_severity_level_option,
         severity: Severity = severity_option,
 ) -> None:
-    started = datetime.now()
+    started = datetime.now(tz=UTC)
     organization = g.get_organization(organization_name)
     repo_alerts = {}
     exceptions = {}

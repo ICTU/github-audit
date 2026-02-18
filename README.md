@@ -24,20 +24,11 @@ token = <your token>
 organization = <your organization>
 ```
 
-Install the requirements:
-
-```console
-$ python3 -m venv venv
-$ . venv/bin/activate
-$ pip install wheel
-$ pip install -r requirements.txt
-```
-
 ## Usage
 
 Run the audit script with `--help` for instructions:
 
 ```console
-$ python3 audit.py --help
+$ uv run --script audit.py --help
 ```
 

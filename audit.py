@@ -1,3 +1,13 @@
+# /// script
+# requires-python = ">=3.14"
+# dependencies = [
+#     "pygithub==2.8.1",
+#     "rich==14.3.2",
+#     "timeago==1.0.16",
+#     "typer==0.24.0",
+#     "yattag==1.16.1",
+# ]
+# ///
 """
 Audit GitHub organizations.
 """
@@ -14,7 +24,7 @@ from typing import Generator, Iterable, Any
 import timeago
 import typer
 
-from github import Github, GithubException
+from github import Auth, Github, GithubException
 from github.CodeScanAlert import CodeScanAlert
 from github.CodeScanAlertInstance import CodeScanAlertInstance
 from github.Membership import Membership
@@ -457,7 +467,8 @@ def output_json(json_data: dict | list, output: typer.FileTextWrite | None) -> N
 ###
 # APPLICATION COMMANDS
 
-g = Github(config["github.com"]["token"])
+auth = Auth.Token(config["github.com"]["token"])
+g = Github(auth=auth)
 app = typer.Typer()
 
 
